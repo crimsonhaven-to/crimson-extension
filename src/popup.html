@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Crimson Haven Companion</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <div class="bg"></div>
+
+    <header class="brand">
+      <img class="brand__sigil" src="../icons/icon-48.png" alt="" />
+      <div class="brand__text">
+        <span class="brand__name">Crimson Haven</span>
+        <span class="brand__sub">Companion</span>
+      </div>
+    </header>
+
+    <main class="stage">
+      <button id="toggle" class="power" type="button" aria-pressed="false" disabled>
+        <span class="power__ring"></span>
+        <span class="power__core"></span>
+        <span class="power__label">Use Extension</span>
+      </button>
+
+      <p id="status" class="status">Connecting…</p>
+    </main>
+
+    <footer class="foot">
+      <div class="stat">
+        <span class="stat__num" id="stat-fetches">0</span>
+        <span class="stat__lbl">fetches</span>
+      </div>
+      <div class="stat">
+        <span class="stat__num" id="stat-rules">0</span>
+        <span class="stat__lbl">active rules</span>
+      </div>
+      <span class="foot__sigil" title="Lumi watches over the bytes">🦇</span>
+    </footer>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

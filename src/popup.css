@@ -1,0 +1,233 @@
+/* Crimson Haven Companion — popup theme.
+   Palette mirrors crimson-client (--color-crimson-*). */
+:root {
+  --c-950: #1a0005;
+  --c-900: #38020c;
+  --c-800: #5c0514;
+  --c-700: #8f071d;
+  --c-600: #c7042d;
+  --c-500: #ff003c;
+  --c-400: #ff4066;
+  --c-300: #ff7792;
+  --c-200: #ffaebe;
+  --c-100: #ffe5ea;
+  --ink: #ffe5ea;
+  --muted: #ff7792;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  width: 300px;
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  color: var(--ink);
+  background: var(--c-950);
+  overflow: hidden;
+  user-select: none;
+}
+
+body {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 360px;
+  padding: 16px 18px 12px;
+}
+
+/* Ambient blood glow behind everything */
+.bg {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(120% 90% at 50% -10%, rgba(255, 0, 60, 0.18), transparent 60%),
+    radial-gradient(80% 70% at 50% 120%, rgba(143, 7, 29, 0.35), transparent 60%),
+    linear-gradient(180deg, #240008, #120003);
+  z-index: 0;
+}
+
+/* ---- brand ---- */
+.brand {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.brand__sigil {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  filter: drop-shadow(0 2px 6px rgba(255, 0, 60, 0.45));
+}
+.brand__text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+}
+.brand__name {
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  font-size: 15px;
+  background: linear-gradient(90deg, var(--c-100), var(--c-400));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.brand__sub {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 2px;
+}
+
+/* ---- the one red button ---- */
+.stage {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+}
+
+.power {
+  position: relative;
+  width: 132px;
+  height: 132px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  outline: none;
+  transition: transform 0.15s ease;
+}
+.power:disabled {
+  cursor: progress;
+  opacity: 0.55;
+}
+.power:not(:disabled):active {
+  transform: scale(0.96);
+}
+
+.power__ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, var(--c-700), var(--c-500), var(--c-300), var(--c-700));
+  padding: 4px;
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px));
+  opacity: 0.45;
+  transition: opacity 0.25s ease;
+}
+.power__core {
+  position: absolute;
+  inset: 14px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 35%, #4a0411, #1a0005 70%);
+  box-shadow:
+    inset 0 2px 10px rgba(0, 0, 0, 0.6),
+    inset 0 0 18px rgba(255, 0, 60, 0.12);
+  transition: box-shadow 0.3s ease, background 0.3s ease;
+}
+.power__label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  color: var(--c-200);
+  padding: 0 24px;
+  transition: color 0.25s ease, text-shadow 0.25s ease;
+}
+
+/* ON state */
+body.on .power__ring {
+  opacity: 1;
+  animation: spin 7s linear infinite;
+}
+body.on .power__core {
+  background: radial-gradient(circle at 50% 35%, #c7042d, #5c0514 72%);
+  box-shadow:
+    inset 0 0 22px rgba(0, 0, 0, 0.45),
+    0 0 26px rgba(255, 0, 60, 0.55);
+}
+body.on .power__label {
+  color: #fff;
+  text-shadow: 0 0 10px rgba(255, 0, 60, 0.8);
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* pulse to invite the first click while OFF + ready */
+body.ready:not(.on) .power__core {
+  animation: breathe 2.6s ease-in-out infinite;
+}
+@keyframes breathe {
+  0%,
+  100% {
+    box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.6), inset 0 0 18px rgba(255, 0, 60, 0.12);
+  }
+  50% {
+    box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.6), 0 0 16px rgba(255, 0, 60, 0.3);
+  }
+}
+
+.status {
+  font-size: 12.5px;
+  color: var(--muted);
+  text-align: center;
+  min-height: 16px;
+  letter-spacing: 0.2px;
+}
+body.on .status {
+  color: var(--c-300);
+}
+
+/* ---- footer stats ---- */
+.foot {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 0, 60, 0.14);
+}
+.stat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1.05;
+}
+.stat__num {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--c-200);
+}
+.stat__lbl {
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.foot__sigil {
+  margin-left: auto;
+  font-size: 15px;
+  opacity: 0.7;
+}

@@ -5,6 +5,10 @@
  * content-script bridge over window.postMessage and exposes a clean, promise-
  * based `window.CrimsonExtension` that crimson-sources codes against.
  *
+ * It is injected by the browser as a `world: "MAIN"` content script (see the
+ * manifest), not by a page DOM <script> — so a strict `script-src 'self'` CSP on
+ * the host page can't block it (DOM-injected extension scripts would be).
+ *
  * Detection from page code (no extension id needed):
  *
  *   if (window.CrimsonExtension?.available) { ... }
@@ -41,9 +45,10 @@
     STATUS: "status",
   };
 
-  const script = document.currentScript;
-  const VERSION = (script && script.dataset.crxVersion) || "unknown";
-  const PROTOCOL = Number((script && script.dataset.crxProtocol) || 0);
+  // Kept in sync with src/protocol.js (CRX.VERSION / CRX.PROTOCOL). As a MAIN-world
+  // content script there's no injected <script> dataset to read these from.
+  const VERSION = "1.0.1";
+  const PROTOCOL = 1;
 
   let seq = 0;
   const pending = new Map(); // id -> {resolve, reject, timer}

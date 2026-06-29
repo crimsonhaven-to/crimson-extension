@@ -1,31 +1,22 @@
 /*
  * crimson-extension — content script (isolated world).
  *
- * The bridge. It does no privileged work itself; it (a) injects the MAIN-world
- * API (src/inpage.js) so page code gets a clean `window.CrimsonExtension`, and
- * (b) relays messages both ways:
+ * The bridge. It does no privileged work itself; it just relays messages both
+ * ways between the MAIN-world API (src/inpage.js) and the service worker:
  *
  *   page  --window.postMessage(REQ)-->  here  --runtime.sendMessage-->  SW
  *   SW    --sendResponse-->             here  --window.postMessage(RES)-->  page
  *   SW    --tabs.sendMessage(BROADCAST)--> here --postMessage(EVENT)--> page
  *
+ * src/inpage.js is injected by the browser as a separate `world: "MAIN"` content
+ * script (see manifest), NOT by this file — a page DOM <script> would be blocked
+ * by a strict `script-src 'self'` CSP, whereas a MAIN-world content script is
+ * exempt. The two share only the DOM `window` for postMessage, never JS scope.
+ *
  * `CRX` comes from src/protocol.js, listed before this file in the manifest.
  */
 (function () {
-  // 1) Inject the MAIN-world API into the page.
-  try {
-    const s = document.createElement("script");
-    s.src = chrome.runtime.getURL("src/inpage.js");
-    s.dataset.crxVersion = CRX.VERSION;
-    s.dataset.crxProtocol = String(CRX.PROTOCOL);
-    (document.head || document.documentElement).appendChild(s);
-    // Remove the tag once it's run; the API object persists on window.
-    s.onload = () => s.remove();
-  } catch (_) {
-    /* CSP could block this in theory; the page can still detect absence. */
-  }
-
-  // 2) page -> SW relay.
+  // page -> SW relay.
   window.addEventListener("message", (event) => {
     // Only accept messages this window posted to itself in our REQ channel.
     if (event.source !== window) return;
@@ -63,7 +54,7 @@
     }, 30000);
   });
 
-  // 3) SW -> page relay (unsolicited broadcasts, e.g. enabled toggled).
+  // SW -> page relay (unsolicited broadcasts, e.g. enabled toggled).
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg && msg.kind === CRX.BROADCAST_STATE) {
       window.postMessage(

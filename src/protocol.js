@@ -22,10 +22,10 @@
  */
 (function (root) {
   const CRX = {
-    VERSION: "1.0.3",
+    VERSION: "1.0.4",
     // Bump when the message shape changes incompatibly; crimson-sources can
-    // refuse an older companion.
-    PROTOCOL: 1,
+    // refuse an older companion. PROTOCOL 2 adds RESOLVE_IN_PAGE.
+    PROTOCOL: 2,
 
     // window.postMessage channels (page <-> content script).
     REQ: "crimson-ext:req", // page -> content -> SW
@@ -38,6 +38,13 @@
     MEDIA_RULES: "media_rules", // install DNR header+CORS rules for the tab's media fetches
     CLEAR_RULES: "clear_rules", // remove previously installed media rules
     STATUS: "status", // current enabled flag (no work)
+    RESOLVE_IN_PAGE: "resolve_in_page", // run an embed in a hidden tab, capture its media URL
+
+    // Hidden-tab capture timeouts (ms). The SW resolves well before the content
+    // relay's safety timeout so a long page-load never trips a false "extension
+    // timeout" before the SW can answer.
+    RESOLVE_DEFAULT_TIMEOUT: 25000,
+    RESOLVE_MAX_TIMEOUT: 40000,
 
     // Popup <-> SW (runtime messages, not page-facing).
     POPUP_GET_STATE: "popup_get_state",

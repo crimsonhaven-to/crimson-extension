@@ -423,6 +423,90 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 });
 
 // ---------------------------------------------------------------------------
+// Capability 3: resolve-in-page (hidden-tab stream capture).
+//
+// Some hosters can't be cracked by a static fetch+parse: their player is an SPA
+// that runs a proof-of-work + in-browser decrypt (Filemoon "Byse"), or it bails
+// when it detects DevTools (Movish rtcore). The robust answer is to let the page
+// do its OWN work in a real browser tab and just *watch the network*: we open the
+// embed in a background tab, capture the first media (.m3u8/.mp4) request it makes
+// (plus the Referer/Origin/UA it used), then close the tab. No reverse-engineering,
+// no DevTools (so anti-debug never trips), and the page's PoW/decrypt runs for real.
+// ---------------------------------------------------------------------------
+
+const MEDIA_URL_RE = /\.(m3u8|mp4)(\?|#|$)/i;
+
+function streamTypeForUrl(u) {
+  return /\.m3u8(\?|#|$)/i.test(u) ? "hls" : "mp4";
+}
+
+async function resolveInPage(payload) {
+  const url = payload && payload.url;
+  if (!url || typeof url !== "string") return { ok: false, error: "missing url" };
+  let timeoutMs = Number(payload.timeoutMs) || CRX.RESOLVE_DEFAULT_TIMEOUT;
+  if (timeoutMs > CRX.RESOLVE_MAX_TIMEOUT) timeoutMs = CRX.RESOLVE_MAX_TIMEOUT;
+
+  // Optional substring(s) the captured media URL must contain (e.g. a known CDN
+  // marker), to skip ad/pre-roll media. Empty => accept the first media request.
+  const want = Array.isArray(payload.mustInclude) ? payload.mustInclude : [];
+  const matchesWant = (u) => want.length === 0 || want.some((w) => u.includes(w));
+
+  let tab;
+  try {
+    tab = await chrome.tabs.create({ url, active: false });
+  } catch (e) {
+    return { ok: false, error: "tab create failed: " + (e && e.message ? e.message : e) };
+  }
+  const tabId = tab.id;
+
+  return new Promise((resolve) => {
+    let done = false;
+
+    const onSend = (details) => {
+      if (done || details.tabId !== tabId) return;
+      if (!MEDIA_URL_RE.test(details.url) || !matchesWant(details.url)) return;
+      const h = {};
+      for (const { name, value } of details.requestHeaders || []) {
+        const n = name.toLowerCase();
+        if (n === "referer") h.referer = value;
+        else if (n === "origin") h.origin = value;
+        else if (n === "user-agent") h.userAgent = value;
+      }
+      finish({ ok: true, url: details.url, streamType: streamTypeForUrl(details.url), headers: h });
+    };
+
+    const finish = (result) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      try {
+        chrome.webRequest.onSendHeaders.removeListener(onSend);
+      } catch (_) {
+        /* ignore */
+      }
+      // Close the throwaway tab; ignore if it's already gone.
+      if (tabId !== undefined) chrome.tabs.remove(tabId).catch(() => {});
+      resolve(result);
+    };
+
+    const timer = setTimeout(
+      () => finish({ ok: false, error: "resolve-in-page timed out (no media request)" }),
+      timeoutMs,
+    );
+
+    try {
+      chrome.webRequest.onSendHeaders.addListener(
+        onSend,
+        { urls: ["<all_urls>"], tabId },
+        ["requestHeaders", "extraHeaders"],
+      );
+    } catch (e) {
+      finish({ ok: false, error: "webRequest listen failed: " + (e && e.message ? e.message : e) });
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Messaging
 // ---------------------------------------------------------------------------
 
@@ -496,6 +580,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       case CRX.CLEAR_RULES: {
         // Allowed even when disabled (cleanup should always work).
         sendResponse(await clearRules(msg.payload, tabId));
+        return;
+      }
+      case CRX.RESOLVE_IN_PAGE: {
+        if (!enabled) return sendResponse({ ok: false, error: "disabled" });
+        sendResponse(await resolveInPage(msg.payload));
         return;
       }
 

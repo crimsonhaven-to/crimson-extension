@@ -43,12 +43,13 @@
     MEDIA_RULES: "media_rules",
     CLEAR_RULES: "clear_rules",
     STATUS: "status",
+    RESOLVE_IN_PAGE: "resolve_in_page",
   };
 
   // Kept in sync with src/protocol.js (CRX.VERSION / CRX.PROTOCOL). As a MAIN-world
   // content script there's no injected <script> dataset to read these from.
-  const VERSION = "1.0.3";
-  const PROTOCOL = 1;
+  const VERSION = "1.0.4";
+  const PROTOCOL = 2;
 
   let seq = 0;
   const pending = new Map(); // id -> {resolve, reject, timer}
@@ -155,6 +156,22 @@
     async clearMediaRules(ruleIds) {
       const r = await call(KIND.CLEAR_RULES, { ruleIds });
       return Boolean(r && r.ok);
+    },
+
+    /**
+     * Run an embed in a hidden background tab and capture the first media URL it
+     * fetches — for SPA/PoW/anti-devtools hosters a static fetch can't crack
+     * (Filemoon "Byse", Movish). The page does its own work; we just watch the
+     * network. Resolves {ok, url, streamType, headers:{referer,origin,userAgent}}.
+     * @param {string} url - the embed URL to load.
+     * @param {{timeoutMs?:number, mustInclude?:string[]}} [opts]
+     */
+    async resolveInPage(url, opts = {}) {
+      // Allow the SW the full capture window before our own call timeout fires.
+      const callTimeout = Math.min((opts.timeoutMs || 25000) + 8000, 50000);
+      const r = await call(KIND.RESOLVE_IN_PAGE, { url, ...opts }, callTimeout);
+      if (!r.ok) throw new Error(`crimson-extension resolveInPage failed: ${r.error}`);
+      return r;
     },
 
     /** Subscribe to enabled on/off changes. Returns an unsubscribe fn. */

@@ -48,10 +48,12 @@
       return;
     }
 
-    // If the SW was asleep and the channel died, fail rather than hang.
+    // If the SW was asleep and the channel died, fail rather than hang. Generous
+    // enough to cover a resolve-in-page capture (a real page load + PoW can take
+    // tens of seconds); the SW answers well before this for every other kind.
     setTimeout(() => {
       if (!replied) respond({ ok: false, error: "extension timeout" });
-    }, 30000);
+    }, 60000);
   });
 
   // SW -> page relay (unsolicited broadcasts, e.g. enabled toggled).

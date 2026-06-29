@@ -59,7 +59,12 @@ function nextMediaRuleId() {
 
 async function loadState() {
   const got = await chrome.storage.local.get([CRX.STORE_ENABLED]);
-  enabled = Boolean(got[CRX.STORE_ENABLED]);
+  // On by default: a *fresh* install (key absent) starts ENABLED so the companion
+  // works out of the box with no extra click. Only an explicit user toggle-off
+  // persists `false`, which still wins on every later load (we honour the stored
+  // boolean once it exists).
+  const stored = got[CRX.STORE_ENABLED];
+  enabled = stored === undefined ? true : Boolean(stored);
   // Session DNR rules survive a SW restart, but our in-memory id counters and the
   // tab->rules map do NOT. Reconcile so we (a) never hand out an id that's still
   // live (which would throw on add), and (b) drop orphaned rules from a previous SW

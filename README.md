@@ -188,7 +188,9 @@ never a requirement.
 
 - Content script + host access are scoped; the in-page API only exposes
   fetch/rule primitives, no extension internals.
-- All work is **off by default** and user-toggled.
+- The companion is **on by default** on a fresh install (it's a pure CORS/header
+  helper scoped to Crimson origins) but stays fully user-toggled — turning it off
+  in the popup persists and wins on every later load.
 - The extension holds **no secrets** and signs nothing — secret-bound sources
   (Febbox/Jellyfin/OpenSubtitles/TMDB) stay on the backend (New_System §5/§6).
 - It is *not* a general web accelerator: it only loads on Crimson origins, and

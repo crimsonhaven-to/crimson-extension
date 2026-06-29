@@ -35,7 +35,7 @@ body {
   position: relative;
   display: flex;
   flex-direction: column;
-  min-height: 360px;
+  min-height: 320px;
   padding: 16px 18px 12px;
 }
 
@@ -99,8 +99,8 @@ body {
 
 .power {
   position: relative;
-  width: 132px;
-  height: 132px;
+  width: 104px;
+  height: 104px;
   border: none;
   border-radius: 50%;
   background: transparent;
@@ -129,7 +129,7 @@ body {
 }
 .power__core {
   position: absolute;
-  inset: 14px;
+  inset: 11px;
   border-radius: 50%;
   background: radial-gradient(circle at 50% 35%, #4a0411, #1a0005 70%);
   box-shadow:
@@ -144,11 +144,11 @@ body {
   align-items: center;
   justify-content: center;
   text-align: center;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.4px;
+  letter-spacing: 0.3px;
   color: var(--c-200);
-  padding: 0 24px;
+  padding: 0 16px;
   transition: color 0.25s ease, text-shadow 0.25s ease;
 }
 

@@ -22,7 +22,7 @@
  */
 (function (root) {
   const CRX = {
-    VERSION: "1.0.2",
+    VERSION: "1.0.3",
     // Bump when the message shape changes incompatibly; crimson-sources can
     // refuse an older companion.
     PROTOCOL: 1,

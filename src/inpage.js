@@ -47,7 +47,7 @@
 
   // Kept in sync with src/protocol.js (CRX.VERSION / CRX.PROTOCOL). As a MAIN-world
   // content script there's no injected <script> dataset to read these from.
-  const VERSION = "1.0.1";
+  const VERSION = "1.0.2";
   const PROTOCOL = 1;
 
   let seq = 0;

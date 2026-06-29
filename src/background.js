@@ -60,17 +60,45 @@ function nextMediaRuleId() {
 async function loadState() {
   const got = await chrome.storage.local.get([CRX.STORE_ENABLED]);
   enabled = Boolean(got[CRX.STORE_ENABLED]);
+  // Session DNR rules survive a SW restart, but our in-memory id counters and the
+  // tab->rules map do NOT. Reconcile so we (a) never hand out an id that's still
+  // live (which would throw on add), and (b) drop orphaned rules from a previous SW
+  // life when we're disabled, so nothing keeps touching traffic.
+  try {
+    const existing = await chrome.declarativeNetRequest.getSessionRules();
+    if (!enabled && existing.length) {
+      await chrome.declarativeNetRequest.updateSessionRules({
+        removeRuleIds: existing.map((r) => r.id),
+      });
+    } else {
+      for (const r of existing) {
+        if (r.id >= CRX.FETCH_RULE_MIN && r.id <= CRX.FETCH_RULE_MAX) {
+          fetchRuleSeq = Math.max(fetchRuleSeq, r.id);
+        } else if (r.id >= CRX.MEDIA_RULE_MIN && r.id <= CRX.MEDIA_RULE_MAX) {
+          mediaRuleSeq = Math.max(mediaRuleSeq, r.id);
+        }
+      }
+    }
+  } catch (_) {
+    /* reconciliation is best-effort; idempotent adds (below) cover the rest. */
+  }
   await refreshActionUI();
 }
 
+// The SW is ephemeral (MV3 kills it after ~30s idle) and can be spun up cold by
+// any event — including a page's very first FETCH/HELLO. `loadState` is async, so
+// until it resolves `enabled` still holds its default `false`; a privileged
+// message answered in that window would wrongly report "disabled" even though the
+// user enabled it (a prime cause of the companion "sometimes" working). We expose
+// a `readyPromise` the message handler awaits before reading `enabled`, so every
+// answer reflects persisted storage, not the cold-start default.
+let readyPromise = loadState();
 chrome.runtime.onInstalled.addListener(() => {
-  loadState();
+  readyPromise = loadState();
 });
 chrome.runtime.onStartup.addListener(() => {
-  loadState();
+  readyPromise = loadState();
 });
-// The SW can be spun up cold by any event; make sure state is loaded.
-loadState();
 
 async function setEnabled(next) {
   enabled = Boolean(next);
@@ -138,7 +166,12 @@ function safeUrlFilter(url) {
 }
 
 async function addSessionRules(rules) {
-  await chrome.declarativeNetRequest.updateSessionRules({ addRules: rules });
+  // Idempotent add: remove any rule already holding these ids first. Session rules
+  // persist across SW restarts while our id counters reset, so a reused id would
+  // otherwise throw "rule with id N already exists" and silently drop the header
+  // injection (→ CDN 403). Removing-then-adding the same ids in one call is atomic.
+  const ids = rules.map((r) => r.id);
+  await chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds: ids, addRules: rules });
 }
 
 async function removeSessionRules(ids) {
@@ -184,16 +217,30 @@ async function doFetch(payload) {
   // requests that aren't tied to a tab — i.e. exactly this SW-initiated fetch
   // (tabIds:[-1]) — so it can never bleed into the page's own media traffic.
   if (headerOps.length) {
+    // Match by host (requestDomains), not the full URL. A `urlFilter` of the whole
+    // URL is a tokenised pattern, not a literal — reserved chars (* ^ |) and query
+    // strings make it silently fail to match, so the headers don't get injected and
+    // the gated CDN 403s. Host-scoping + tabIds:[-1] reliably targets this SW fetch.
+    const host = (() => {
+      try {
+        return new URL(url).hostname;
+      } catch (_) {
+        return null;
+      }
+    })();
+    const condition = {
+      resourceTypes: ["xmlhttprequest", "other", "media"],
+      tabIds: [-1],
+    };
+    if (host) condition.requestDomains = [host];
+    else condition.urlFilter = safeUrlFilter(url);
+
     await addSessionRules([
       {
         id: ruleId,
         priority: 1,
         action: { type: "modifyHeaders", requestHeaders: headerOps },
-        condition: {
-          urlFilter: safeUrlFilter(url),
-          resourceTypes: ["xmlhttprequest", "other", "media"],
-          tabIds: [-1],
-        },
+        condition,
       },
     ]);
     ruleAdded = true;
@@ -393,6 +440,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   const tabId = sender && sender.tab ? sender.tab.id : undefined;
 
   (async () => {
+    // Ensure persisted state (esp. `enabled`) is loaded before we answer — the SW
+    // may have just cold-started for this very message. Without this, the first
+    // FETCH/HELLO after an idle teardown can wrongly report "disabled".
+    try {
+      await readyPromise;
+    } catch (_) {
+      /* loadState is best-effort; fall through with whatever we have. */
+    }
     switch (msg && msg.kind) {
       // ---- handshake / status (allowed even when disabled) ----
       case CRX.HELLO:

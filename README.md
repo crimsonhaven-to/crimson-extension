@@ -16,7 +16,8 @@ nor the cors-proxy in the byte path.
 
 ## What it does (and deliberately does *not*)
 
-It does exactly two things, both at the network layer:
+It does three things at the network layer (the first two are the core; the third is
+a last-resort capability for hosters static scraping can't crack):
 
 1. **`fetch` RPC** — a privileged cross-origin fetch the page can call. The
    extension performs the request from its service worker (which has host access,
@@ -32,9 +33,18 @@ It does exactly two things, both at the network layer:
    player then streams gated CDN segments directly. This is the bandwidth win:
    `CDN → viewer`, nothing in between.
 
-It does **not** scrape, resolve, sign, hold secrets, or know anything about any
-specific source. All of that stays in `crimson-sources` (page) and the backend.
-The extension is a dumb, sharp tool; the page decides how to use it.
+3. **`resolveInPage` — hidden-tab capture** (v1.0.4+, protocol 2). For SPA / proof-of-work
+   / anti-devtools hosters a static fetch can't crack (Filemoon "Byse", Movish), the SW
+   opens the embed in a **background tab**, lets the page do its own work, captures the
+   first `.m3u8`/`.mp4` request **+ its Referer/Origin/UA** via `chrome.webRequest`, then
+   closes the tab. We reverse nothing, and watching the network never trips DevTools
+   detection. **v1.0.5:** ad popunders the embed spawns (`window.open`) are tracked by
+   opener and closed together with the throwaway tab when resolving finishes — no stray
+   tabs left open. Reserve it for hosters with no static path (it spins a real tab).
+
+It still holds **no secrets**, signs nothing, and knows nothing source-specific — the
+page (`crimson-sources`) drives all three primitives and decides when to use each.
+`resolveInPage` is feature-detected (older companions lack it).
 
 Everything is gated behind the user-toggled `enabled` flag. While **off**, the
 extension answers handshakes (so the page knows it exists) but refuses all work
@@ -119,8 +129,23 @@ window.CrimsonExtension = {
   }>, opts?: { replace?: boolean }): Promise<{ ok, ruleIds: number[] }>,
 
   clearMediaRules(ruleIds?: number[]): Promise<boolean>, // omit ids => clear tab
+
+  // hidden-tab capture (v1.0.4+, protocol 2; optional — feature-detect it)
+  resolveInPage?(url: string, opts?: {
+    timeoutMs?: number,
+    mustInclude?: string[],             // substrings the captured URL must contain (skip ad media)
+  }): Promise<{
+    ok: boolean,
+    url?: string, streamType?: "hls" | "mp4",
+    headers?: { referer?: string, origin?: string, userAgent?: string },
+    error?: string,
+  }>,
 };
 ```
+
+> `resolveInPage` needs the `webRequest` permission (declared in the manifest). It
+> opens one background tab per call and tidies it (and any popups it spawned) when it
+> resolves/times out.
 
 ### Typical flow (a gated HLS source, e.g. VOE)
 

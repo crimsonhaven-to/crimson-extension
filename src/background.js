@@ -459,6 +459,26 @@ async function resolveInPage(payload) {
   }
   const tabId = tab.id;
 
+  // Embed pages (Filemoon/Movish & co.) spawn ad popunders via window.open. Those
+  // popups have our throwaway tab as their opener (directly or transitively), so we
+  // track them and close them together with the embed tab when resolving finishes —
+  // otherwise tidying only the embed tab would leave its popups orphaned in the
+  // user's browser (the "stray tabs left open" behaviour). We never capture media
+  // from these (the webRequest listener is scoped to the embed tab), so closing
+  // them can't drop the real stream.
+  const spawned = new Set();
+  const onCreated = (t) => {
+    if (!t || t.id === undefined || t.id === tabId) return;
+    if (t.openerTabId === tabId || (t.openerTabId !== undefined && spawned.has(t.openerTabId))) {
+      spawned.add(t.id);
+    }
+  };
+  try {
+    chrome.tabs.onCreated.addListener(onCreated);
+  } catch (_) {
+    /* tabs.onCreated unavailable — we just won't auto-tidy popups */
+  }
+
   return new Promise((resolve) => {
     let done = false;
 
@@ -484,8 +504,17 @@ async function resolveInPage(payload) {
       } catch (_) {
         /* ignore */
       }
-      // Close the throwaway tab; ignore if it's already gone.
-      if (tabId !== undefined) chrome.tabs.remove(tabId).catch(() => {});
+      try {
+        chrome.tabs.onCreated.removeListener(onCreated);
+      } catch (_) {
+        /* ignore */
+      }
+      // Tidy up the throwaway embed tab AND every popup it spawned. Remove each
+      // individually so one already-closed tab doesn't abort closing the rest
+      // (chrome.tabs.remove rejects the whole batch if any id is gone).
+      const toClose = new Set(spawned);
+      if (tabId !== undefined) toClose.add(tabId);
+      for (const id of toClose) chrome.tabs.remove(id).catch(() => {});
       resolve(result);
     };
 

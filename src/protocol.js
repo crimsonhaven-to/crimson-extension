@@ -22,7 +22,17 @@
  */
 (function (root) {
   const CRX = {
-    VERSION: "1.1.0",
+    // Single source of truth: the manifest. Available in the SW (importScripts)
+    // and in content scripts (isolated world); both can read the manifest, so we
+    // never hand-bump a version string here again. Falls back to a literal only
+    // if chrome.runtime is somehow unavailable at load.
+    VERSION: (function () {
+      try {
+        return chrome.runtime.getManifest().version;
+      } catch (_) {
+        return "1.1.1";
+      }
+    })(),
     // Bump when the message shape changes incompatibly; crimson-sources can
     // refuse an older companion. PROTOCOL 2 adds RESOLVE_IN_PAGE.
     PROTOCOL: 2,
@@ -49,6 +59,11 @@
     // Popup <-> SW (runtime messages, not page-facing).
     POPUP_GET_STATE: "popup_get_state",
     POPUP_SET_ENABLED: "popup_set_enabled",
+    // Manage the user's extra Haven origins — sites (beyond the built-in
+    // manifest matches) the page bridge is dynamically injected into, so the
+    // companion works on self-hosted instances on their own domain.
+    POPUP_ADD_SITE: "popup_add_site",
+    POPUP_REMOVE_SITE: "popup_remove_site",
 
     // SW -> content broadcast kind (relayed to the page as an EVENT).
     BROADCAST_STATE: "broadcast_state",
@@ -56,6 +71,10 @@
     // Storage keys.
     STORE_ENABLED: "enabled",
     STORE_STATS: "stats",
+    // User-added Haven origins (array of portless "scheme://host" strings) whose
+    // page bridge is dynamically registered. The built-in manifest matches
+    // (crimsonhaven.to + localhost) are NOT in here.
+    STORE_SITES: "havens",
 
     // DNR session-rule id ranges, kept disjoint so the two rule families never
     // collide. FETCH rules are ephemeral (added then removed around one fetch);

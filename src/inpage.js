@@ -46,9 +46,12 @@
     RESOLVE_IN_PAGE: "resolve_in_page",
   };
 
-  // Kept in sync with src/protocol.js (CRX.VERSION / CRX.PROTOCOL). As a MAIN-world
-  // content script there's no injected <script> dataset to read these from.
-  const VERSION = "1.0.5";
+  // The MAIN-world API can't read chrome.runtime.getManifest() (no chrome.* here),
+  // so this VERSION is the one that isn't derived at runtime. The publish workflow
+  // rewrites it from the release tag at build time (see .github/workflows/publish.yml),
+  // so this committed value is just the local-dev default — CI keeps the published
+  // build in lockstep with the manifest. (protocol.js / the popup read the manifest.)
+  const VERSION = "1.1.1";
   const PROTOCOL = 2;
 
   let seq = 0;

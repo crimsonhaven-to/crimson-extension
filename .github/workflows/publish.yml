@@ -29,12 +29,24 @@ jobs:
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Sync manifest.json version
+      - name: Sync version from the release tag
         run: |
           VERSION="${{ steps.version.outputs.version }}"
+
+          # manifest.json — the store's source of truth.
           tmp="$(mktemp)"
           jq --arg v "$VERSION" '.version = $v' manifest.json > "$tmp" && mv "$tmp" manifest.json
           echo "manifest.json version set to $VERSION"
+
+          # src/inpage.js — the MAIN-world API can't read the manifest at runtime,
+          # so its VERSION constant is rewritten here from the same tag. Keeps
+          # window.CrimsonExtension.version in lockstep with the published build.
+          sed -i -E "s/const VERSION = \"[^\"]*\";/const VERSION = \"${VERSION}\";/" src/inpage.js
+          # Fail loudly if the substitution didn't land (constant renamed/moved),
+          # rather than silently shipping a stale version.
+          grep -q "const VERSION = \"${VERSION}\";" src/inpage.js \
+            || { echo "::error::Failed to set VERSION in src/inpage.js"; exit 1; }
+          echo "src/inpage.js VERSION set to $VERSION"
 
       - name: Build ZIP
         run: |

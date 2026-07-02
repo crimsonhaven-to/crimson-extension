@@ -114,11 +114,16 @@ async function loadState() {
 // a `readyPromise` the message handler awaits before reading `enabled`, so every
 // answer reflects persisted storage, not the cold-start default.
 let readyPromise = loadState();
+// Reconcile dynamically-registered Haven bridges too (registered scripts persist,
+// but re-syncing after an update or a revocation keeps them honest).
+syncHavens();
 chrome.runtime.onInstalled.addListener(() => {
   readyPromise = loadState();
+  syncHavens();
 });
 chrome.runtime.onStartup.addListener(() => {
   readyPromise = loadState();
+  syncHavens();
 });
 
 // If the user revokes our host access from chrome://extensions while we're
@@ -126,7 +131,10 @@ chrome.runtime.onStartup.addListener(() => {
 // rule, flip the switch off, update the UI) so behaviour stays honest without
 // waiting for a reload.
 chrome.permissions.onRemoved.addListener(async () => {
-  if (await hasHostAccess()) return; // some *other* optional permission was removed
+  // A specific Haven origin may have been revoked from chrome://extensions —
+  // reconcile registrations so we stop injecting where we're no longer allowed.
+  await syncHavens();
+  if (await hasHostAccess()) return; // broad grant intact; nothing else to do
   enabled = false;
   await clearAllRules();
   await refreshActionUI();
@@ -153,6 +161,149 @@ async function setEnabled(next) {
   await refreshActionUI();
   broadcastState();
   return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Dynamic Haven registration
+//
+// The static manifest content_scripts only match crimsonhaven.to + localhost.
+// To make the companion work on a self-hosted instance running on its OWN
+// domain, the user adds that origin from the popup: the popup requests host
+// permission for it (a user gesture, so it must live there), then asks us to
+// register the SAME two bridge scripts the manifest declares — the MAIN-world
+// in-page API and the isolated-world relay — for that origin. Registered
+// scripts persist across sessions; we reconcile them on install/startup and
+// drop any whose host permission was later revoked.
+// ---------------------------------------------------------------------------
+
+// Portless "scheme://host" -> a "scheme://host/*" match pattern. Match patterns
+// can't carry a port, so callers pass portless origins (the popup normalises).
+function siteToMatch(site) {
+  return site.replace(/\/+$/, "") + "/*";
+}
+
+// Deterministic, collision-free script ids for an origin, so add/remove/reconcile
+// all address the exact same pair.
+function siteScriptIds(site) {
+  const key = encodeURIComponent(site);
+  return { iso: `haven-iso:${key}`, main: `haven-main:${key}` };
+}
+
+async function unregisterScriptIds(ids) {
+  try {
+    const have = await chrome.scripting.getRegisteredContentScripts({ ids });
+    const present = have.map((s) => s.id);
+    if (present.length) await chrome.scripting.unregisterContentScripts({ ids: present });
+  } catch (_) {
+    /* nothing registered under these ids — fine */
+  }
+}
+
+// Register the bridge for one origin. Mirrors the manifest's two content_scripts
+// (MAIN: inpage.js; ISOLATED: protocol.js + content.js), at document_start.
+// Idempotent: drops any existing pair for this origin first.
+async function registerHaven(site) {
+  const ids = siteScriptIds(site);
+  await unregisterScriptIds([ids.iso, ids.main]);
+  await chrome.scripting.registerContentScripts([
+    {
+      id: ids.iso,
+      matches: [siteToMatch(site)],
+      js: ["src/protocol.js", "src/content.js"],
+      world: "ISOLATED",
+      runAt: "document_start",
+      allFrames: false,
+      persistAcrossSessions: true,
+    },
+    {
+      id: ids.main,
+      matches: [siteToMatch(site)],
+      js: ["src/inpage.js"],
+      world: "MAIN",
+      runAt: "document_start",
+      allFrames: false,
+      persistAcrossSessions: true,
+    },
+  ]);
+}
+
+async function getHavens() {
+  const got = await chrome.storage.local.get([CRX.STORE_SITES]);
+  const list = got[CRX.STORE_SITES];
+  return Array.isArray(list) ? list : [];
+}
+
+async function setHavens(list) {
+  await chrome.storage.local.set({ [CRX.STORE_SITES]: list });
+}
+
+// Popup flow: the user already granted host permission for `site` (from the
+// popup gesture); we register the bridge and remember the origin.
+async function addHaven(site) {
+  if (!site || !/^https?:\/\/[^/]+$/.test(site)) {
+    return { ok: false, error: "invalid site" };
+  }
+  // Guard: never register on an origin we weren't actually granted.
+  let granted = false;
+  try {
+    granted = await chrome.permissions.contains({ origins: [siteToMatch(site)] });
+  } catch (_) {
+    granted = false;
+  }
+  if (!granted) return { ok: false, error: "permission not granted" };
+
+  try {
+    await registerHaven(site);
+  } catch (e) {
+    return { ok: false, error: String(e && e.message ? e.message : e) };
+  }
+  const list = await getHavens();
+  if (!list.includes(site)) {
+    list.push(site);
+    await setHavens(list);
+  }
+  return { ok: true, havens: list };
+}
+
+async function removeHaven(site) {
+  const ids = siteScriptIds(site);
+  await unregisterScriptIds([ids.iso, ids.main]);
+  // Give the host permission back too, so removing a site fully reverses the add.
+  // A no-op when the broad <all_urls> grant (from enabling) still covers it.
+  try {
+    await chrome.permissions.remove({ origins: [siteToMatch(site)] });
+  } catch (_) {
+    /* can't drop a sub-pattern of a broader grant — harmless */
+  }
+  const list = (await getHavens()).filter((s) => s !== site);
+  await setHavens(list);
+  return { ok: true, havens: list };
+}
+
+// Reconcile stored Havens with reality (install/startup, and after a revocation):
+// re-register the ones we still hold permission for, and drop the rest.
+async function syncHavens() {
+  const list = await getHavens();
+  const kept = [];
+  for (const site of list) {
+    let granted = false;
+    try {
+      granted = await chrome.permissions.contains({ origins: [siteToMatch(site)] });
+    } catch (_) {
+      granted = false;
+    }
+    if (granted) {
+      try {
+        await registerHaven(site);
+        kept.push(site);
+      } catch (_) {
+        /* registration failed (bad pattern?) — drop it below */
+      }
+    } else {
+      await unregisterScriptIds(Object.values(siteScriptIds(site)));
+    }
+  }
+  if (kept.length !== list.length) await setHavens(kept);
 }
 
 // ---------------------------------------------------------------------------
@@ -699,12 +850,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
       // ---- popup control surface ----
       case CRX.POPUP_GET_STATE: {
-        sendResponse({ ok: true, enabled, version: CRX.VERSION, stats });
+        sendResponse({ ok: true, enabled, version: CRX.VERSION, stats, havens: await getHavens() });
         return;
       }
       case CRX.POPUP_SET_ENABLED: {
         const r = await setEnabled(msg.enabled);
         sendResponse({ ok: r.ok, enabled, error: r.error });
+        return;
+      }
+      case CRX.POPUP_ADD_SITE: {
+        sendResponse(await addHaven(msg.site));
+        return;
+      }
+      case CRX.POPUP_REMOVE_SITE: {
+        sendResponse(await removeHaven(msg.site));
         return;
       }
 

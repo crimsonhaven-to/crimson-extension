@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Crimson Haven Companion",
   "short_name": "Crimson Companion",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Local CORS unblock + header injection for Crimson Haven. Lets the site scrape and play sources straight from your browser — no backend in the path. 🦇",
   "author": "Crimson Haven",
   "minimum_chrome_version": "111",
@@ -14,6 +14,7 @@
   },
   "permissions": [
     "declarativeNetRequestWithHostAccess",
+    "scripting",
     "storage",
     "webRequest"
   ],

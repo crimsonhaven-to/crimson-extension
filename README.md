@@ -34,13 +34,16 @@ a last-resort capability for hosters static scraping can't crack):
    `CDN → viewer`, nothing in between.
 
 3. **`resolveInPage` — hidden-tab capture** (v1.0.4+, protocol 2). For SPA / proof-of-work
-   / anti-devtools hosters a static fetch can't crack (Filemoon "Byse", Movish), the SW
-   opens the embed in a **background tab**, lets the page do its own work, captures the
-   first `.m3u8`/`.mp4` request **+ its Referer/Origin/UA** via `chrome.webRequest`, then
-   closes the tab. We reverse nothing, and watching the network never trips DevTools
-   detection. **v1.0.5:** ad popunders the embed spawns (`window.open`) are tracked by
-   opener and closed together with the throwaway tab when resolving finishes — no stray
-   tabs left open. Reserve it for hosters with no static path (it spins a real tab).
+   / anti-devtools hosters a static fetch can't crack, the SW opens the embed in a
+   **background tab**, lets the page do its own work, captures the first `.m3u8`/`.mp4`
+   request **+ its Referer/Origin/UA** via `chrome.webRequest`, then closes the tab. We
+   reverse nothing, and watching the network never trips DevTools detection. **v1.0.5:**
+   ad popunders the embed spawns (`window.open`) are tracked by opener and closed together
+   with the throwaway tab when resolving finishes — no stray tabs left open. **v1.0.6:** a
+   play nudge (`chrome.scripting`) is injected into the tab and every frame on a short
+   cadence — muted `play()` + JWPlayer `.play()` + a click on the usual play affordances —
+   so lazy SPA players that only fetch the `.m3u8` once playback starts no longer need a
+   manual click to resolve. Reserve it for hosters with no static path (it spins a real tab).
 
 It still holds **no secrets**, signs nothing, and knows nothing source-specific — the
 page (`crimson-sources`) drives all three primitives and decides when to use each.
@@ -56,7 +59,7 @@ A plain browser `fetch()` can't (a) read most cross-origin responses (CORS) or
 (b) set `Referer`/`Origin`/`User-Agent`/`Sec-Fetch-*`. The `crimson-proxy` edge
 relay solves both — but it's a datacenter IP with a non-Chrome TLS fingerprint,
 so it can't clear Cloudflare's JA3 checks and gets the *wrong* IP for ASN-bound
-tokens (e.g. VOE). The extension solves all of it from a **real browser on the
+tokens. The extension solves all of it from a **real browser on the
 viewer's residential IP**:
 
 | Constraint | cors-proxy | **extension** |
@@ -64,7 +67,7 @@ viewer's residential IP**:
 | CORS (read cross-origin) | ✅ relay | ✅ host access |
 | Forbidden headers | ✅ inject | ✅ DNR rewrite |
 | Cloudflare JA3 / TLS | ❌ not Chrome | ✅ real Chrome |
-| ASN-bound tokens (VOE) | ❌ datacenter IP | ✅ viewer's IP |
+| ASN-bound tokens | ❌ datacenter IP | ✅ viewer's IP |
 | Bytes off the backend | ✅ via edge | ✅ **direct CDN→viewer** |
 
 See `../crimson-backend/New_System.md` §3–§4 for the full constraint analysis.
@@ -143,25 +146,26 @@ window.CrimsonExtension = {
 };
 ```
 
-> `resolveInPage` needs the `webRequest` permission (declared in the manifest). It
-> opens one background tab per call and tidies it (and any popups it spawned) when it
+> `resolveInPage` needs the `webRequest` permission to watch the tab's network and
+> `scripting` to inject the play nudge (both declared in the manifest). It opens one
+> background tab per call and tidies it (and any popups it spawned) when it
 > resolves/times out.
 
-### Typical flow (a gated HLS source, e.g. VOE)
+### Typical flow (a gated HLS source)
 
 ```js
 const ext = window.CrimsonExtension;
 if (ext?.available && (await ext.hello()).enabled) {
   // 1) resolve: fetch the embed page with the Referer the host gates on
-  const r = await ext.fetch(embedUrl, { headers: { Referer: "https://voe.sx/" } });
-  const cdnPlaylistUrl = parseVoe(r.body);          // crimson-sources logic
+  const r = await ext.fetch(embedUrl, { headers: { Referer: hostOrigin + "/" } });
+  const cdnPlaylistUrl = parseEmbed(r.body);        // crimson-sources logic
 
   // 2) playback: let hls.js hit the CDN directly; the extension fixes headers+CORS
   await ext.installMediaRules([{
-    requestDomains: ["cloudwindow-route.com"],
+    requestDomains: [cdnHost],
     requestHeaders: {
-      Referer: "https://voe.sx/",
-      "User-Agent": "Mozilla/5.0 (Linux; Android 11; K) … Chrome/124 Mobile",
+      Referer: hostOrigin + "/",
+      "User-Agent": "Mozilla/5.0 …",
     },
     cors: true,
   }]);
@@ -217,7 +221,7 @@ never a requirement.
   helper scoped to Crimson origins) but stays fully user-toggled — turning it off
   in the popup persists and wins on every later load.
 - The extension holds **no secrets** and signs nothing — secret-bound sources
-  (Febbox/Jellyfin/OpenSubtitles/TMDB) stay on the backend (New_System §5/§6).
+  stay on the backend (New_System §5/§6).
 - It is *not* a general web accelerator: it only loads on Crimson origins, and
   while the SW will fetch any URL the page asks for, only Crimson pages can ask.
   (A future hardening step: restrict the `fetch` RPC to an allowlist of known

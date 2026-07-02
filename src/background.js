@@ -440,6 +440,58 @@ function streamTypeForUrl(u) {
   return /\.m3u8(\?|#|$)/i.test(u) ? "hls" : "mp4";
 }
 
+// Injected into the resolve-in-page tab (and every frame) to start playback the
+// way a user click would. Some SPA embeds — notably Filemoon's "Byse" player —
+// only fetch the .m3u8 once playback is *initiated*, so a pure network-watch tab
+// would sit idle until someone hits play by hand. This nudges it: unmute-safe
+// muted play() (allowed for background tabs), a JWPlayer .play() if the page
+// exposes one, and a click on the usual play affordances. Self-contained (no
+// outer scope), idempotent, and swallows every error so a hostile embed can't
+// break the SW. Deliberately narrow selectors so we don't click ad chrome.
+function crimsonPlayNudge() {
+  try {
+    for (const v of document.querySelectorAll("video, audio")) {
+      try {
+        v.muted = true;
+        const p = v.play();
+        if (p && typeof p.catch === "function") p.catch(() => {});
+      } catch (_) {
+        /* autoplay policy / detached element — ignore */
+      }
+    }
+    try {
+      if (typeof window.jwplayer === "function") {
+        const jw = window.jwplayer();
+        if (jw && typeof jw.play === "function") jw.play(true);
+      }
+    } catch (_) {
+      /* not a JW page, or jwplayer() threw — ignore */
+    }
+    const sels = [
+      ".jw-icon-display",
+      ".jw-display-icon-container",
+      ".vjs-big-play-button",
+      ".plyr__control--overlaid",
+      "button[aria-label*='play' i]",
+      "button[title*='play' i]",
+      "#play",
+      ".play-button",
+    ];
+    for (const sel of sels) {
+      const el = document.querySelector(sel);
+      if (el) {
+        try {
+          el.click();
+        } catch (_) {
+          /* ignore */
+        }
+      }
+    }
+  } catch (_) {
+    /* never let the nudge throw into the injector */
+  }
+}
+
 async function resolveInPage(payload) {
   const url = payload && payload.url;
   if (!url || typeof url !== "string") return { ok: false, error: "missing url" };
@@ -482,6 +534,27 @@ async function resolveInPage(payload) {
   return new Promise((resolve) => {
     let done = false;
 
+    // Re-inject the play nudge on a short cadence rather than once on load: the
+    // SPA renders its player (and any child iframe) after the page reports
+    // "complete", and cross-origin frames appear late, so a single shot would
+    // miss them. Each tick injects into every frame that exists right then; the
+    // nudge is idempotent, so hitting an already-playing player is a no-op.
+    const nudge = () => {
+      if (done || tabId === undefined) return;
+      chrome.scripting
+        .executeScript({
+          target: { tabId, allFrames: true },
+          world: "MAIN",
+          func: crimsonPlayNudge,
+        })
+        .catch(() => {
+          /* tab still on about:blank, navigating, or gone — next tick retries */
+        });
+    };
+    const nudgeTimer = setInterval(nudge, 1200);
+    // First attempt a touch after creation so the initial document exists.
+    setTimeout(nudge, 800);
+
     const onSend = (details) => {
       if (done || details.tabId !== tabId) return;
       if (!MEDIA_URL_RE.test(details.url) || !matchesWant(details.url)) return;
@@ -499,6 +572,7 @@ async function resolveInPage(payload) {
       if (done) return;
       done = true;
       clearTimeout(timer);
+      clearInterval(nudgeTimer);
       try {
         chrome.webRequest.onSendHeaders.removeListener(onSend);
       } catch (_) {

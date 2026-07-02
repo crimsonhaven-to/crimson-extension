@@ -1,0 +1,58 @@
+name: Publish to Chrome Web Store
+
+# Triggers when you publish a GitHub Release whose tag looks like v1.2.3
+on:
+  release:
+    types: [published]
+
+# Allow only one publish at a time.
+concurrency:
+  group: chrome-web-store
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Derive version from tag
+        id: version
+        run: |
+          # Strip a leading "v" from the release tag: v1.0.7 -> 1.0.7
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          if ! echo "$VERSION" | grep -Eq '^[0-9]+(\.[0-9]+){1,3}$'; then
+            echo "::error::Tag '$TAG' is not a valid extension version (expected e.g. v1.0.7)"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Sync manifest.json version
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          tmp="$(mktemp)"
+          jq --arg v "$VERSION" '.version = $v' manifest.json > "$tmp" && mv "$tmp" manifest.json
+          echo "manifest.json version set to $VERSION"
+
+      - name: Build ZIP
+        run: |
+          # Package only what the extension needs — no repo cruft.
+          zip -r crimson-extension.zip \
+            manifest.json \
+            src \
+            icons \
+            -x '*.DS_Store'
+          echo "Contents:" && unzip -l crimson-extension.zip
+
+      - name: Upload & publish
+        uses: mnao305/chrome-extension-upload@v5.0.0
+        with:
+          file-path: crimson-extension.zip
+          extension-id: ${{ secrets.CHROME_EXTENSION_ID }}
+          client-id: ${{ secrets.CHROME_CLIENT_ID }}
+          client-secret: ${{ secrets.CHROME_CLIENT_SECRET }}
+          refresh-token: ${{ secrets.CHROME_REFRESH_TOKEN }}
+          # Set to false to upload a draft without publishing (review it in the dashboard).
+          publish: true

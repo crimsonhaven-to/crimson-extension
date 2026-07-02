@@ -59,15 +59,39 @@ async function refresh() {
   render(state);
 }
 
+const NEED_ACCESS_MSG = "Needs site access to work — grant it to switch on.";
+
 els.toggle.addEventListener("click", async () => {
   const wantOn = !els.body.classList.contains("on");
+
+  // Turning ON requires the broad host permission. Request it FIRST, straight
+  // from this click: chrome.permissions.request() only works during a user
+  // gesture, so we must not await anything before it (a message round-trip would
+  // consume the gesture and Chrome would reject the prompt). If it's already
+  // granted this resolves true instantly with no prompt.
+  if (wantOn) {
+    let granted = false;
+    try {
+      granted = await chrome.permissions.request({ origins: ["<all_urls>"] });
+    } catch (_) {
+      granted = false;
+    }
+    if (!granted) {
+      els.status.textContent = NEED_ACCESS_MSG;
+      return;
+    }
+  }
+
   els.toggle.disabled = true;
   const resp = await send(KIND.SET_ENABLED, { enabled: wantOn });
   if (resp.ok) {
     await refresh();
   } else {
     els.toggle.disabled = false;
-    els.status.textContent = "That didn't take — try again?";
+    els.status.textContent =
+      resp.error === "host permission not granted"
+        ? NEED_ACCESS_MSG
+        : "That didn't take — try again?";
   }
 });
 

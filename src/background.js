@@ -57,14 +57,30 @@ function nextMediaRuleId() {
 // Startup / persistence
 // ---------------------------------------------------------------------------
 
+// True iff the user has granted our optional broad host permission. Every
+// privileged capability (cross-origin FETCH, DNR header/CORS injection, and
+// resolve-in-page) needs it, so without the grant we stay dark. The permission
+// is requested from the popup on enable (it needs a user gesture, which the SW
+// doesn't have).
+async function hasHostAccess() {
+  try {
+    return await chrome.permissions.contains({ origins: ["<all_urls>"] });
+  } catch (_) {
+    return false;
+  }
+}
+
 async function loadState() {
   const got = await chrome.storage.local.get([CRX.STORE_ENABLED]);
-  // On by default: a *fresh* install (key absent) starts ENABLED so the companion
-  // works out of the box with no extra click. Only an explicit user toggle-off
-  // persists `false`, which still wins on every later load (we honour the stored
-  // boolean once it exists).
+  // Effective `enabled` = "the user wants it on" AND "host access is granted".
+  // A fresh install has no grant yet, so it starts OFF until the user flips the
+  // popup switch (which triggers the permission prompt). We still remember an
+  // explicit toggle-off as `false`. Revoking the grant from chrome://extensions
+  // later also flips us off, honestly, on the next load — see permissions
+  // .onRemoved below for the live case.
   const stored = got[CRX.STORE_ENABLED];
-  enabled = stored === undefined ? true : Boolean(stored);
+  const wantEnabled = stored === undefined ? true : Boolean(stored);
+  enabled = wantEnabled && (await hasHostAccess());
   // Session DNR rules survive a SW restart, but our in-memory id counters and the
   // tab->rules map do NOT. Reconcile so we (a) never hand out an id that's still
   // live (which would throw on add), and (b) drop orphaned rules from a previous SW
@@ -105,8 +121,30 @@ chrome.runtime.onStartup.addListener(() => {
   readyPromise = loadState();
 });
 
+// If the user revokes our host access from chrome://extensions while we're
+// running, we can no longer do privileged work — go dark immediately (drop every
+// rule, flip the switch off, update the UI) so behaviour stays honest without
+// waiting for a reload.
+chrome.permissions.onRemoved.addListener(async () => {
+  if (await hasHostAccess()) return; // some *other* optional permission was removed
+  enabled = false;
+  await clearAllRules();
+  await refreshActionUI();
+  broadcastState();
+});
+
 async function setEnabled(next) {
-  enabled = Boolean(next);
+  const want = Boolean(next);
+  // Never report "on" without host access — the popup owns requesting the grant
+  // (it needs a user gesture) before asking us to enable. If it somehow asks
+  // without the grant in place, refuse rather than pretend to work.
+  if (want && !(await hasHostAccess())) {
+    enabled = false;
+    await refreshActionUI();
+    broadcastState();
+    return { ok: false, error: "host permission not granted" };
+  }
+  enabled = want;
   await chrome.storage.local.set({ [CRX.STORE_ENABLED]: enabled });
   if (!enabled) {
     // Going dark: rip out every rule we own so we stop touching traffic.
@@ -114,6 +152,7 @@ async function setEnabled(next) {
   }
   await refreshActionUI();
   broadcastState();
+  return { ok: true };
 }
 
 // ---------------------------------------------------------------------------
@@ -664,8 +703,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         return;
       }
       case CRX.POPUP_SET_ENABLED: {
-        await setEnabled(msg.enabled);
-        sendResponse({ ok: true, enabled });
+        const r = await setEnabled(msg.enabled);
+        sendResponse({ ok: r.ok, enabled, error: r.error });
         return;
       }
 

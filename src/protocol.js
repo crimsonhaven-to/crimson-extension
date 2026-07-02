@@ -22,7 +22,7 @@
  */
 (function (root) {
   const CRX = {
-    VERSION: "1.0.6",
+    VERSION: "1.1.0",
     // Bump when the message shape changes incompatibly; crimson-sources can
     // refuse an older companion. PROTOCOL 2 adds RESOLVE_IN_PAGE.
     PROTOCOL: 2,

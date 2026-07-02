@@ -190,8 +190,9 @@ never a requirement.
                                                            • enabled flag + popup
 ```
 
-- `manifest.json` — MV3; `declarativeNetRequestWithHostAccess` + `<all_urls>`
-  host access; content script on `crimsonhaven.to` (+ `localhost`/`127.0.0.1`).
+- `manifest.json` — MV3; `declarativeNetRequestWithHostAccess`; `<all_urls>` as an
+  **optional** host permission (requested at runtime from the popup on enable, not
+  demanded at install); content script on `crimsonhaven.to` (+ `localhost`/`127.0.0.1`).
 - `src/protocol.js` — shared message constants (SW + content script).
 - `src/background.js` — the privileged core (the only place that fetches /
   installs DNR rules). Gated on `enabled`.
@@ -217,9 +218,11 @@ never a requirement.
 
 - Content script + host access are scoped; the in-page API only exposes
   fetch/rule primitives, no extension internals.
-- The companion is **on by default** on a fresh install (it's a pure CORS/header
-  helper scoped to Crimson origins) but stays fully user-toggled — turning it off
-  in the popup persists and wins on every later load.
+- The companion starts **off on a fresh install**: its capabilities need the
+  optional `<all_urls>` host permission, which the popup requests (via a user
+  gesture) the first time you switch it on. Once granted it stays on across
+  sessions; turning it off in the popup persists, and revoking the grant from
+  `chrome://extensions` flips it off automatically.
 - The extension holds **no secrets** and signs nothing — secret-bound sources
   stay on the backend (New_System §5/§6).
 - It is *not* a general web accelerator: it only loads on Crimson origins, and

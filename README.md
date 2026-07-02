@@ -227,8 +227,6 @@ never a requirement.
   stay on the backend (New_System §5/§6).
 - It is *not* a general web accelerator: it only loads on Crimson origins, and
   while the SW will fetch any URL the page asks for, only Crimson pages can ask.
-  (A future hardening step: restrict the `fetch` RPC to an allowlist of known
-  source/CDN hosts shipped with `crimson-sources`.)
 
 ---
 

@@ -20,7 +20,12 @@ const els = {
   status: document.getElementById("status"),
   fetches: document.getElementById("stat-fetches"),
   rules: document.getElementById("stat-rules"),
+  version: document.getElementById("version"),
 };
+
+// Show the running extension version, straight from the manifest so it always
+// matches whatever the release pipeline shipped.
+els.version.textContent = "v" + chrome.runtime.getManifest().version;
 
 function send(kind, extra = {}) {
   return new Promise((resolve) => {

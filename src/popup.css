@@ -226,8 +226,16 @@ body.on .status {
   text-transform: uppercase;
   letter-spacing: 1px;
 }
-.foot__sigil {
+.foot__ver {
   margin-left: auto;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 1px;
+  opacity: 0.75;
+}
+.foot__sigil {
+  margin-left: 8px;
   font-size: 15px;
   opacity: 0.7;
 }

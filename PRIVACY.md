@@ -67,4 +67,4 @@ location with a revised effective date.
 
 ## Contact
 
-Questions about this policy can be sent to: **ramon@schmocker.fun**
+Questions about this policy can be sent to: **service@agony.ch**

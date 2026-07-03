@@ -43,7 +43,12 @@ a last-resort capability for hosters static scraping can't crack):
    play nudge (`chrome.scripting`) is injected into the tab and every frame on a short
    cadence — muted `play()` + JWPlayer `.play()` + a click on the usual play affordances —
    so lazy SPA players that only fetch the `.m3u8` once playback starts no longer need a
-   manual click to resolve. Reserve it for hosters with no static path (it spins a real tab).
+   manual click to resolve. **v1.1.2:** an opt-in `active:true` opens the throwaway tab
+   *focused* (and restores the user's previous tab the moment it resolves) — some ad-SPA
+   players (Vidking) only autoplay, and thus only fetch their stream, while their tab is the
+   visible one; a backgrounded tab is `document.hidden`, so they never start. Default stays
+   background (no focus-steal) for hosters that run fine hidden. Reserve it for hosters with
+   no static path (it spins a real tab).
 
 It still holds **no secrets**, signs nothing, and knows nothing source-specific — the
 page (`crimson-sources`) drives all three primitives and decides when to use each.
@@ -137,6 +142,8 @@ window.CrimsonExtension = {
   resolveInPage?(url: string, opts?: {
     timeoutMs?: number,
     mustInclude?: string[],             // substrings the captured URL must contain (skip ad media)
+    active?: boolean,                   // open the tab FOCUSED (restored when done) — for SPA
+                                        // players that only autoplay while visible (Vidking); default background
   }): Promise<{
     ok: boolean,
     url?: string, streamType?: "hls" | "mp4",

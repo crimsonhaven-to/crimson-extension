@@ -693,9 +693,28 @@ async function resolveInPage(payload) {
   const want = Array.isArray(payload.mustInclude) ? payload.mustInclude : [];
   const matchesWant = (u) => want.length === 0 || want.some((w) => u.includes(w));
 
+  // Most hosters (Filemoon "Byse" & co.) run and fetch their .m3u8 fine in a
+  // hidden background tab, so we default to `active:false` — no focus-steal. But
+  // some ad-supported SPA players (Vidking) only autoplay — and thus only fetch
+  // their stream — when their tab is the *visible* one: a backgrounded tab is
+  // `document.hidden`, so they never start and we time out. `active:true` (opt-in
+  // per call) opens the throwaway tab focused so the page behaves as it would for
+  // a real viewer; we remember the tab the user was on and restore it the instant
+  // we finish, so the flash is brief.
+  const active = payload.active === true;
+  let restoreTabId;
+  if (active) {
+    try {
+      const [cur] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      if (cur && cur.id !== undefined) restoreTabId = cur.id;
+    } catch (_) {
+      /* nothing to restore — fine */
+    }
+  }
+
   let tab;
   try {
-    tab = await chrome.tabs.create({ url, active: false });
+    tab = await chrome.tabs.create({ url, active });
   } catch (e) {
     return { ok: false, error: "tab create failed: " + (e && e.message ? e.message : e) };
   }
@@ -772,6 +791,12 @@ async function resolveInPage(payload) {
         chrome.tabs.onCreated.removeListener(onCreated);
       } catch (_) {
         /* ignore */
+      }
+      // Return focus to the tab the user was on before we stole it (active mode)
+      // *before* closing ours, so focus lands deterministically on their tab rather
+      // than whatever Chrome would auto-activate next to the closing embed tab.
+      if (restoreTabId !== undefined) {
+        chrome.tabs.update(restoreTabId, { active: true }).catch(() => {});
       }
       // Tidy up the throwaway embed tab AND every popup it spawned. Remove each
       // individually so one already-closed tab doesn't abort closing the rest

@@ -167,9 +167,11 @@
      * (Filemoon "Byse", Movish). The page does its own work; we just watch the
      * network. Resolves {ok, url, streamType, headers:{referer,origin,userAgent}}.
      * @param {string} url - the embed URL to load.
-     * @param {{timeoutMs?:number, mustInclude?:string[], active?:boolean}} [opts]
+     * @param {{timeoutMs?:number, mustInclude?:string[], active?:boolean, frame?:boolean}} [opts]
      *   `active:true` opens the throwaway tab focused (restored when done) — for
      *   SPA players that only autoplay/fetch while their tab is visible (Vidking).
+     *   `frame:true` loads the embed inside an iframe on our wrapper page instead of
+     *   navigating to it directly — for players that self-destruct unless framed (Vidking).
      */
     async resolveInPage(url, opts = {}) {
       // Allow the SW the full capture window before our own call timeout fires.

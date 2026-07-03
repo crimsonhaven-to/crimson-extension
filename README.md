@@ -47,8 +47,13 @@ a last-resort capability for hosters static scraping can't crack):
    *focused* (and restores the user's previous tab the moment it resolves) — some ad-SPA
    players (Vidking) only autoplay, and thus only fetch their stream, while their tab is the
    visible one; a backgrounded tab is `document.hidden`, so they never start. Default stays
-   background (no focus-steal) for hosters that run fine hidden. Reserve it for hosters with
-   no static path (it spins a real tab).
+   background (no focus-steal) for hosters that run fine hidden. **v1.1.3:** an opt-in
+   `frame:true` loads the embed inside an `<iframe>` on the companion's own `src/resolve.html`
+   wrapper page instead of navigating the tab straight to it — some players (Vidking) are
+   built to run framed and self-destruct (close/redirect) the instant they're the top-level
+   window; framing gives them the context they expect, and the tab-scoped `webRequest` still
+   captures the framed player's `.m3u8` from the subframe. Reserve these for hosters with no
+   static path (it spins a real tab).
 
 It still holds **no secrets**, signs nothing, and knows nothing source-specific — the
 page (`crimson-sources`) drives all three primitives and decides when to use each.
@@ -144,6 +149,9 @@ window.CrimsonExtension = {
     mustInclude?: string[],             // substrings the captured URL must contain (skip ad media)
     active?: boolean,                   // open the tab FOCUSED (restored when done) — for SPA
                                         // players that only autoplay while visible (Vidking); default background
+    frame?: boolean,                    // load the embed inside an iframe on the companion's wrapper
+                                        // page instead of navigating to it — for players that self-destruct
+                                        // unless framed (Vidking); default direct navigation
   }): Promise<{
     ok: boolean,
     url?: string, streamType?: "hls" | "mp4",
@@ -205,6 +213,8 @@ never a requirement.
   installs DNR rules). Gated on `enabled`.
 - `src/content.js` — isolated-world bridge; injects the in-page API and relays.
 - `src/inpage.js` — MAIN-world `window.CrimsonExtension`.
+- `src/resolve.html` + `src/resolve.js` — the `resolveInPage({frame:true})` wrapper page
+  that hosts the embed in an `<iframe>` (for players that only run framed).
 - `src/popup.*` — the one red button + live stats.
 
 ### Implementation notes / gotchas

@@ -712,9 +712,20 @@ async function resolveInPage(payload) {
     }
   }
 
+  // `frame:true` loads the embed inside an <iframe> on our own wrapper page
+  // (src/resolve.html) instead of navigating the tab straight to it. Some players
+  // (Vidking) are built to run *framed* and self-destruct — close/redirect — the
+  // instant they detect they're the top-level window. Framing gives them the
+  // context they expect; webRequest is tab-scoped, so we still capture the framed
+  // player's .m3u8 from the subframe exactly as for a direct navigation.
+  const openUrl =
+    payload.frame === true
+      ? chrome.runtime.getURL("src/resolve.html") + "?embed=" + encodeURIComponent(url)
+      : url;
+
   let tab;
   try {
-    tab = await chrome.tabs.create({ url, active });
+    tab = await chrome.tabs.create({ url: openUrl, active });
   } catch (e) {
     return { ok: false, error: "tab create failed: " + (e && e.message ? e.message : e) };
   }

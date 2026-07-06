@@ -638,8 +638,54 @@ function streamTypeForUrl(u) {
 // exposes one, and a click on the usual play affordances. Self-contained (no
 // outer scope), idempotent, and swallows every error so a hostile embed can't
 // break the SW. Deliberately narrow selectors so we don't click ad chrome.
+//
+// First it spoofs the Page Visibility API to report the tab as visible+focused.
+// The capture tab always runs *backgrounded* now (never focus-steals, so the
+// client keeps fullscreen across episode changes), but some ad-SPA players
+// (Vidking) gate autoplay on `document.hidden`/`visibilityState` and simply won't
+// start — nor fetch their stream — in a tab they think is hidden. Faking visibility
+// flips that gate without ever making the tab visible for real. Harmless for
+// players that don't care (Filemoon). It can't defeat the browser's own rAF/timer
+// throttling of background tabs, only the page's *JS-readable* visibility checks.
 function crimsonPlayNudge() {
   try {
+    if (!document.__crimsonVisSpoof) {
+      Object.defineProperty(document, "__crimsonVisSpoof", { value: true });
+      const fake = (obj, prop, val) => {
+        try {
+          Object.defineProperty(obj, prop, { configurable: true, get: () => val });
+        } catch (_) {
+          /* non-configurable on this engine — ignore */
+        }
+      };
+      fake(document, "hidden", false);
+      fake(document, "webkitHidden", false);
+      fake(document, "visibilityState", "visible");
+      fake(document, "webkitVisibilityState", "visible");
+      try {
+        document.hasFocus = () => true;
+      } catch (_) {
+        /* ignore */
+      }
+      // Swallow the events that would tell a player it just went hidden/unfocused.
+      // Registered capture-phase and first (we run before the page's own scripts on
+      // most ticks), so stopImmediatePropagation keeps them from ever seeing it.
+      const swallow = (e) => {
+        try {
+          e.stopImmediatePropagation();
+        } catch (_) {
+          /* ignore */
+        }
+      };
+      for (const type of ["visibilitychange", "webkitvisibilitychange", "blur", "pagehide"]) {
+        try {
+          window.addEventListener(type, swallow, true);
+          document.addEventListener(type, swallow, true);
+        } catch (_) {
+          /* ignore */
+        }
+      }
+    }
     for (const v of document.querySelectorAll("video, audio")) {
       try {
         v.muted = true;
@@ -687,30 +733,26 @@ async function resolveInPage(payload) {
   if (!url || typeof url !== "string") return { ok: false, error: "missing url" };
   let timeoutMs = Number(payload.timeoutMs) || CRX.RESOLVE_DEFAULT_TIMEOUT;
   if (timeoutMs > CRX.RESOLVE_MAX_TIMEOUT) timeoutMs = CRX.RESOLVE_MAX_TIMEOUT;
+  // The capture tab always runs backgrounded now (see below), so a background-
+  // hostile player can load forever without ever emitting media. Hard-cap the tab's
+  // lifetime as a backstop so a stuck tab is always torn down instead of lingering
+  // indefinitely (it sits out of sight, so the cap is generous — see the constant).
+  if (timeoutMs > CRX.RESOLVE_TAB_HARD_KILL) timeoutMs = CRX.RESOLVE_TAB_HARD_KILL;
 
   // Optional substring(s) the captured media URL must contain (e.g. a known CDN
   // marker), to skip ad/pre-roll media. Empty => accept the first media request.
   const want = Array.isArray(payload.mustInclude) ? payload.mustInclude : [];
   const matchesWant = (u) => want.length === 0 || want.some((w) => u.includes(w));
 
-  // Most hosters (Filemoon "Byse" & co.) run and fetch their .m3u8 fine in a
-  // hidden background tab, so we default to `active:false` — no focus-steal. But
-  // some ad-supported SPA players (Vidking) only autoplay — and thus only fetch
-  // their stream — when their tab is the *visible* one: a backgrounded tab is
-  // `document.hidden`, so they never start and we time out. `active:true` (opt-in
-  // per call) opens the throwaway tab focused so the page behaves as it would for
-  // a real viewer; we remember the tab the user was on and restore it the instant
-  // we finish, so the flash is brief.
-  const active = payload.active === true;
-  let restoreTabId;
-  if (active) {
-    try {
-      const [cur] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-      if (cur && cur.id !== undefined) restoreTabId = cur.id;
-    } catch (_) {
-      /* nothing to restore — fine */
-    }
-  }
+  // We ALWAYS open the throwaway capture tab in the background (`active:false`) —
+  // it never steals focus. Focusing it (even briefly) yanks the client player out
+  // of fullscreen when it navigates to the next episode, which the client is
+  // otherwise built to survive. The `active` flag some callers still pass (Vidking,
+  // whose ad-SPA player only autoplays while its tab is *visible*) is intentionally
+  // ignored: keeping the viewer's fullscreen wins over Vidking's visible-only
+  // autoplay. The RESOLVE_TAB_HARD_KILL cap above makes sure a player that never
+  // starts in the background is still torn down promptly instead of loading forever.
+  const active = false;
 
   // `frame:true` loads the embed inside an <iframe> on our own wrapper page
   // (src/resolve.html) instead of navigating the tab straight to it. Some players
@@ -765,6 +807,10 @@ async function resolveInPage(payload) {
         .executeScript({
           target: { tabId, allFrames: true },
           world: "MAIN",
+          // Inject as early as the frame allows rather than waiting for idle, so the
+          // visibility spoof (see crimsonPlayNudge) has the best chance of landing
+          // before the embed's player boots and reads document.hidden.
+          injectImmediately: true,
           func: crimsonPlayNudge,
         })
         .catch(() => {
@@ -772,8 +818,10 @@ async function resolveInPage(payload) {
         });
     };
     const nudgeTimer = setInterval(nudge, 1200);
-    // First attempt a touch after creation so the initial document exists.
-    setTimeout(nudge, 800);
+    // Fire the first shots quickly so the visibility spoof lands as close to the
+    // player's boot as we can manage without a document_start content script.
+    setTimeout(nudge, 150);
+    setTimeout(nudge, 600);
 
     const onSend = (details) => {
       if (done || details.tabId !== tabId) return;
@@ -802,12 +850,6 @@ async function resolveInPage(payload) {
         chrome.tabs.onCreated.removeListener(onCreated);
       } catch (_) {
         /* ignore */
-      }
-      // Return focus to the tab the user was on before we stole it (active mode)
-      // *before* closing ours, so focus lands deterministically on their tab rather
-      // than whatever Chrome would auto-activate next to the closing embed tab.
-      if (restoreTabId !== undefined) {
-        chrome.tabs.update(restoreTabId, { active: true }).catch(() => {});
       }
       // Tidy up the throwaway embed tab AND every popup it spawned. Remove each
       // individually so one already-closed tab doesn't abort closing the rest

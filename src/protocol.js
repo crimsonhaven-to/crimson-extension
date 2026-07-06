@@ -55,6 +55,13 @@
     // timeout" before the SW can answer.
     RESOLVE_DEFAULT_TIMEOUT: 25000,
     RESOLVE_MAX_TIMEOUT: 40000,
+    // Hard ceiling on the capture tab's lifetime, independent of the requested
+    // timeout. The tab always runs backgrounded (never focus-steals, so the client
+    // player keeps its fullscreen across episode changes), so a stuck/forever-loading
+    // tab lingers harmlessly out of sight rather than clinging to focus — no need to
+    // kill it early. Matched to RESOLVE_MAX_TIMEOUT so ad-heavy, lazy-loading players
+    // (Vidking) get their full window to fetch the stream before we tear the tab down.
+    RESOLVE_TAB_HARD_KILL: 40000,
 
     // Popup <-> SW (runtime messages, not page-facing).
     POPUP_GET_STATE: "popup_get_state",

@@ -703,7 +703,44 @@ function crimsonPlayNudge() {
     } catch (_) {
       /* not a JW page, or jwplayer() threw — ignore */
     }
-    const sels = [
+    // Dispatch a full pointer+mouse sequence at the element's real centre instead of
+    // a bare el.click(). A lot of "is this a real user?" gate handlers (bs.to's
+    // .hoster-player among them) don't just look at isTrusted — they read clientX/Y,
+    // button, and expect the pointerdown→mousedown→mouseup→click order a real click
+    // produces. A coordinate-less el.click() fails those; this passes the ones that
+    // don't hard-require isTrusted, and is a harmless no-op for players that ignore it.
+    const realClick = (el) => {
+      const r = el.getBoundingClientRect();
+      const cx = Math.round(r.left + r.width / 2);
+      const cy = Math.round(r.top + r.height / 2);
+      const base = { bubbles: true, cancelable: true, composed: true, view: window, clientX: cx, clientY: cy, button: 0, buttons: 1 };
+      const pointer = { ...base, pointerId: 1, pointerType: "mouse", isPrimary: true };
+      try { el.dispatchEvent(new PointerEvent("pointerover", pointer)); } catch (_) {}
+      try { el.dispatchEvent(new PointerEvent("pointerenter", pointer)); } catch (_) {}
+      try { el.dispatchEvent(new MouseEvent("mouseover", base)); } catch (_) {}
+      try { el.dispatchEvent(new PointerEvent("pointerdown", pointer)); } catch (_) {}
+      try { el.dispatchEvent(new MouseEvent("mousedown", base)); } catch (_) {}
+      try { el.dispatchEvent(new PointerEvent("pointerup", { ...pointer, buttons: 0 })); } catch (_) {}
+      try { el.dispatchEvent(new MouseEvent("mouseup", { ...base, buttons: 0 })); } catch (_) {}
+      try { el.dispatchEvent(new MouseEvent("click", { ...base, buttons: 0 })); } catch (_) {}
+      try { el.click(); } catch (_) { /* detached / cross-doc — ignore */ }
+    };
+    // Reveal triggers: elements that, when clicked, make the actual player/embed
+    // appear (bs.to's .hoster-player POSTs ajax/embed.php and injects the hoster
+    // iframe only after a click). These must be clicked ONCE — re-clicking every
+    // tick would re-POST and stack duplicate iframes — so each element is marked
+    // and skipped on later ticks. Fresh elements (a second hoster row) still get one.
+    const revealSels = [".hoster-player", "[data-hoster]", ".hoster a", ".watch a.hoster"];
+    for (const sel of revealSels) {
+      for (const el of document.querySelectorAll(sel)) {
+        if (el.__crimsonNudged) continue;
+        try { Object.defineProperty(el, "__crimsonNudged", { value: true }); } catch (_) { el.__crimsonNudged = true; }
+        realClick(el);
+      }
+    }
+    // Play affordances: overlay buttons on a player that already exists. Idempotent to
+    // re-hit (an already-playing player ignores them), so these run every tick.
+    const playSels = [
       ".jw-icon-display",
       ".jw-display-icon-container",
       ".vjs-big-play-button",
@@ -713,15 +750,9 @@ function crimsonPlayNudge() {
       "#play",
       ".play-button",
     ];
-    for (const sel of sels) {
+    for (const sel of playSels) {
       const el = document.querySelector(sel);
-      if (el) {
-        try {
-          el.click();
-        } catch (_) {
-          /* ignore */
-        }
-      }
+      if (el) realClick(el);
     }
   } catch (_) {
     /* never let the nudge throw into the injector */

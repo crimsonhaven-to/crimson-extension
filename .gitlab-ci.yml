@@ -1,0 +1,103 @@
+# GitLab CI/CD — translated from .github/workflows/publish.yml, which is left in
+# place so the extension can still be published from GitHub.
+#
+# Triggers on a version tag (v1.2.3). GitHub fired on a *published Release*; GitLab
+# has no equivalent pipeline trigger, so the tag itself is the trigger — push
+# `v1.2.3` and the store upload runs.
+#
+# mnao305/chrome-extension-upload has no GitLab equivalent, so the three Chrome Web
+# Store API calls it makes (refresh the OAuth token, upload the zip, publish) are
+# spelled out below.
+#
+# Required CI/CD variables (Settings > CI/CD > Variables), all masked:
+#   CHROME_EXTENSION_ID  CHROME_CLIENT_ID  CHROME_CLIENT_SECRET  CHROME_REFRESH_TOKEN
+
+stages:
+  - publish
+
+publish:
+  stage: publish
+  tags: [docker]
+  image: alpine:3.20
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v/
+  # Allow only one publish at a time.
+  resource_group: chrome-web-store
+  before_script:
+    - apk add --no-cache bash curl jq zip
+  script:
+    - |
+      set -euo pipefail
+      # Derive version from tag: strip a leading "v" -> 1.0.7
+      TAG="$CI_COMMIT_TAG"
+      VERSION="${TAG#v}"
+      if ! echo "$VERSION" | grep -Eq '^[0-9]+(\.[0-9]+){1,3}$'; then
+        echo "Tag '$TAG' is not a valid extension version (expected e.g. v1.0.7)" >&2
+        exit 1
+      fi
+      echo "version=$VERSION"
+
+      # manifest.json — the store's source of truth.
+      tmp="$(mktemp)"
+      jq --arg v "$VERSION" '.version = $v' manifest.json > "$tmp" && mv "$tmp" manifest.json
+      echo "manifest.json version set to $VERSION"
+
+      # src/inpage.js — the MAIN-world API can't read the manifest at runtime,
+      # so its VERSION constant is rewritten here from the same tag. Keeps
+      # window.CrimsonExtension.version in lockstep with the published build.
+      sed -i -E "s/const VERSION = \"[^\"]*\";/const VERSION = \"${VERSION}\";/" src/inpage.js
+      # Fail loudly if the substitution didn't land (constant renamed/moved),
+      # rather than silently shipping a stale version.
+      grep -q "const VERSION = \"${VERSION}\";" src/inpage.js \
+        || { echo "Failed to set VERSION in src/inpage.js" >&2; exit 1; }
+      echo "src/inpage.js VERSION set to $VERSION"
+
+      # Package only what the extension needs — no repo cruft.
+      zip -r crimson-extension.zip manifest.json src icons -x '*.DS_Store'
+      echo "Contents:" && unzip -l crimson-extension.zip || true
+    - |
+      set -euo pipefail
+      for v in CHROME_EXTENSION_ID CHROME_CLIENT_ID CHROME_CLIENT_SECRET CHROME_REFRESH_TOKEN; do
+        eval "val=\${$v:-}"
+        if [ -z "$val" ]; then
+          echo "$v is not set — cannot reach the Chrome Web Store." >&2
+          exit 1
+        fi
+      done
+
+      echo "Exchanging the refresh token for an access token"
+      ACCESS_TOKEN="$(curl -fsS -X POST \
+        -d "client_id=${CHROME_CLIENT_ID}" \
+        -d "client_secret=${CHROME_CLIENT_SECRET}" \
+        -d "refresh_token=${CHROME_REFRESH_TOKEN}" \
+        -d "grant_type=refresh_token" \
+        https://oauth2.googleapis.com/token | jq -r .access_token)"
+      [ -n "$ACCESS_TOKEN" ] && [ "$ACCESS_TOKEN" != "null" ] || { echo "Could not obtain an access token" >&2; exit 1; }
+
+      echo "Uploading the package"
+      UPLOAD="$(curl -fsS -X PUT \
+        -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+        -H "x-goog-api-version: 2" \
+        -T crimson-extension.zip \
+        "https://www.googleapis.com/upload/chromewebstore/v1.1/items/${CHROME_EXTENSION_ID}")"
+      echo "$UPLOAD" | jq .
+      STATE="$(echo "$UPLOAD" | jq -r '.uploadState // empty')"
+      [ "$STATE" = "SUCCESS" ] || { echo "Upload failed (state: $STATE)" >&2; exit 1; }
+
+      # Set PUBLISH to "false" as a CI/CD variable to upload a draft without
+      # publishing (review it in the dashboard first).
+      if [ "${PUBLISH:-true}" != "true" ]; then
+        echo "PUBLISH is not true — uploaded as a draft, not published."
+        exit 0
+      fi
+
+      echo "Publishing"
+      curl -fsS -X POST \
+        -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+        -H "x-goog-api-version: 2" \
+        -H "Content-Length: 0" \
+        "https://www.googleapis.com/chromewebstore/v1.1/items/${CHROME_EXTENSION_ID}/publish" | jq .
+  artifacts:
+    paths:
+      - crimson-extension.zip
+    expire_in: 30 days

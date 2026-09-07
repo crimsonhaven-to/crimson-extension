@@ -5,7 +5,16 @@
   "version": "1.1.3",
   "description": "Little Companion for crimsonhaven. Lets the site play sources straight from your browser — no backend in the path. 🦇",
   "author": "Crimson Haven",
-  "minimum_chrome_version": "111",
+  "minimum_chrome_version": "121",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "companion@crimsonhaven.to",
+      "strict_min_version": "140.0",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
+    }
+  },
   "icons": {
     "16": "icons/icon-16.png",
     "32": "icons/icon-32.png",
@@ -21,7 +30,8 @@
   ],
   "optional_host_permissions": ["<all_urls>"],
   "background": {
-    "service_worker": "src/background.js"
+    "service_worker": "src/background.js",
+    "scripts": ["src/protocol.js", "src/background.js"]
   },
   "action": {
     "default_title": "Crimson Haven Companion",

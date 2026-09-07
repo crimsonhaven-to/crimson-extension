@@ -1,7 +1,7 @@
 # crimson-extension 🦇
 
-The **Crimson Haven Companion** — a tiny Chromium (Chrome/Edge, MV3) extension
-whose only job is **local CORS unblock + header injection** for
+The **Crimson Haven Companion** — a tiny MV3 extension for Chrome, Edge and
+Firefox whose only job is **local CORS unblock + header injection** for
 [Crimson Haven](https://crimsonhaven.to).
 
 It is the first building block of the [New System](../crimson-backend/New_System.md):
@@ -84,9 +84,22 @@ See `../crimson-backend/New_System.md` §3–§4 for the full constraint analysi
 
 ## Install (unpacked, dev)
 
+Chrome / Edge:
+
 1. `chrome://extensions` → enable **Developer mode**.
 2. **Load unpacked** → select this folder (`crimson-extension/`).
 3. Open Crimson Haven, click the toolbar sigil, press **Use Extension**.
+
+Firefox (140+):
+
+1. `about:debugging#/runtime/this-firefox` → **Load Temporary Add-on…**.
+2. Pick `manifest.json` in this folder. Temporary add-ons vanish on restart; a
+   signed build from AMO is the permanent route.
+3. Open Crimson Haven, click the toolbar sigil, press **Use Extension**. Firefox
+   asks for site access at that point, the same as Chrome.
+
+Alternatively, `npx web-ext run` in this folder launches a throwaway Firefox
+profile with the extension loaded, and `npx web-ext lint` checks the manifest.
 
 No build step — it's plain JS/CSS/JSON. (Icons are pre-rendered in `icons/`;
 regenerate with `scripts/` if you ever restyle.)
@@ -208,6 +221,10 @@ never a requirement.
 - `manifest.json` — MV3; `declarativeNetRequestWithHostAccess`; `<all_urls>` as an
   **optional** host permission (requested at runtime from the popup on enable, not
   demanded at install); content script on `crimsonhaven.to` (+ `localhost`/`127.0.0.1`).
+  One manifest serves every browser: `background` lists both `service_worker`
+  (Chrome) and `scripts` (Firefox event page), and `browser_specific_settings.gecko`
+  carries the add-on id, minimum Firefox version and the "collects no data"
+  declaration AMO requires. Chrome ignores that block.
 - `src/protocol.js` — shared message constants (SW + content script).
 - `src/background.js` — the privileged core (the only place that fetches /
   installs DNR rules). Gated on `enabled`.
@@ -228,8 +245,13 @@ never a requirement.
 - **Response CORS:** `installMediaRules({cors:true})` adds `ACAO:*` +
   `Access-Control-Expose-Headers:*` to responses so `hls.js` can read them.
 - **No build/bundler** by design (keeps it auditable and trivial to side-load).
-- **Chromium only** for now (MV3 + `world:MAIN` via DOM injection). A Firefox
-  port is feasible later (`browser.*`, slightly different DNR limits).
+- **Firefox runs the same code.** Firefox has no background service worker, so
+  it loads `src/protocol.js` + `src/background.js` as an event page instead;
+  `background.js` only calls `importScripts` when it exists. Everything else the
+  companion relies on (`chrome.*` with promises, DNR session rules with `tabIds`,
+  `world: "MAIN"` content scripts, `scripting.executeScript` into MAIN, and
+  `webRequest.onSendHeaders`) is supported by Firefox 128+, and the manifest
+  pins 140 for the data-collection declaration.
 
 ## Security posture
 

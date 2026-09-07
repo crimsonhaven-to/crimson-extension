@@ -23,7 +23,10 @@
  * Everything is gated behind the user-controlled `enabled` flag (the popup's one
  * red button). Disabled => we answer handshakes but refuse all work.
  */
-importScripts("protocol.js");
+// Chrome runs this file as a service worker and has to pull protocol.js in
+// itself. Firefox runs it as an event page, where the manifest's background
+// `scripts` list already loaded protocol.js and importScripts does not exist.
+if (typeof importScripts === "function") importScripts("protocol.js");
 
 // ---------------------------------------------------------------------------
 // State
@@ -759,6 +762,17 @@ function crimsonPlayNudge() {
   }
 }
 
+// Chrome only reveals Referer/Origin/User-Agent to the listener with the
+// "extraHeaders" option. Firefox reports them without it and rejects the value
+// as an invalid enum, so it gets the plain form.
+function listenSendHeaders(listener, filter) {
+  try {
+    chrome.webRequest.onSendHeaders.addListener(listener, filter, ["requestHeaders", "extraHeaders"]);
+  } catch (_) {
+    chrome.webRequest.onSendHeaders.addListener(listener, filter, ["requestHeaders"]);
+  }
+}
+
 async function resolveInPage(payload) {
   const url = payload && payload.url;
   if (!url || typeof url !== "string") return { ok: false, error: "missing url" };
@@ -897,11 +911,7 @@ async function resolveInPage(payload) {
     );
 
     try {
-      chrome.webRequest.onSendHeaders.addListener(
-        onSend,
-        { urls: ["<all_urls>"], tabId },
-        ["requestHeaders", "extraHeaders"],
-      );
+      listenSendHeaders(onSend, { urls: ["<all_urls>"], tabId });
     } catch (e) {
       finish({ ok: false, error: "webRequest listen failed: " + (e && e.message ? e.message : e) });
     }

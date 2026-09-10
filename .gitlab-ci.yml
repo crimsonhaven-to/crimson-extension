@@ -1,7 +1,6 @@
-# GitLab CI/CD — translated from .github/workflows/publish.yml, which is left in
-# place so the extension can still be published from GitHub.
+# GitLab CI/CD for crimson-extension.
 #
-# Triggers on a version tag (v1.2.3). GitHub fired on a *published Release*; GitLab
+# Triggers on a version tag (v1.2.3). GitLab
 # has no equivalent pipeline trigger, so the tag itself is the trigger — push
 # `v1.2.3` and the store upload runs.
 #

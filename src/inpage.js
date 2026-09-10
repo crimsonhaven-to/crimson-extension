@@ -48,7 +48,7 @@
 
   // The MAIN-world API can't read chrome.runtime.getManifest() (no chrome.* here),
   // so this VERSION is the one that isn't derived at runtime. The publish workflow
-  // rewrites it from the release tag at build time (see .github/workflows/publish.yml),
+  // rewrites it from the release tag at build time (see .gitlab-ci.yml),
   // so this committed value is just the local-dev default — CI keeps the published
   // build in lockstep with the manifest. (protocol.js / the popup read the manifest.)
   const VERSION = "1.1.1";

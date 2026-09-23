@@ -14,6 +14,15 @@ nor the cors-proxy in the byte path.
 > One red button. Press **Use Extension** and the rest happens in the
 > background. There is no other UI and nothing to configure.
 
+## Where to install it
+
+If you don't want to load unpacked files, you can get the officially published extension directly from the Chrome or Firefox addon stores!
+
+**Chrome (and friends)**: [Crimson Haven Companion](https://chromewebstore.google.com/detail/crimson-haven-companion/npfllfkcppdjimedcbaadpaidkjbgkki)
+**Firefox**: [Crimson Haven Companion](https://addons.mozilla.org/en-US/firefox/addon/crimson-haven-companion/)
+
+*Note: The Chrome version also counts for all chromium-based browsers such as Brave, Edge, ...*
+
 ## What it does (and deliberately does *not*)
 
 It does three things at the network layer (the first two are the core; the third is

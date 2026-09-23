@@ -4,7 +4,7 @@ The **Crimson Haven Companion** — a tiny MV3 extension for Chrome, Edge and
 Firefox whose only job is **local CORS unblock + header injection** for
 [Crimson Haven](https://crimsonhaven.to).
 
-It is the first building block of the [New System](../crimson-backend/New_System.md):
+It is the first building block of the [New System](https://docs.crimsonhaven.org/architecture/new-system/):
 moving scraping/resolving off the backend and into the viewer's browser. The
 extension is the *most capable* execution environment — with it installed, the
 site (`crimson-client` + `crimson-sources`) can scrape gated sources and play
@@ -90,7 +90,7 @@ viewer's residential IP**:
 | ASN-bound tokens | ❌ datacenter IP | ✅ viewer's IP |
 | Bytes off the backend | ✅ via edge | ✅ **direct CDN→viewer** |
 
-See `../crimson-backend/New_System.md` §3–§4 for the full constraint analysis.
+See the [New System docs](https://docs.crimsonhaven.org/architecture/new-system/) for the full constraint analysis.
 
 ## Install (unpacked, dev)
 
@@ -273,7 +273,7 @@ never a requirement.
   sessions; turning it off in the popup persists, and revoking the grant from
   `chrome://extensions` flips it off automatically.
 - The extension holds **no secrets** and signs nothing — secret-bound sources
-  stay on the backend (New_System §5/§6).
+  stay on the backend (see the New System docs).
 - It is *not* a general web accelerator: it only loads on Crimson origins, and
   while the SW will fetch any URL the page asks for, only Crimson pages can ask.
 

@@ -19,6 +19,7 @@ nor the cors-proxy in the byte path.
 If you don't want to load unpacked files, you can get the officially published extension directly from the Chrome or Firefox addon stores!
 
 **Chrome (and friends)**: [Crimson Haven Companion](https://chromewebstore.google.com/detail/crimson-haven-companion/npfllfkcppdjimedcbaadpaidkjbgkki)
+
 **Firefox**: [Crimson Haven Companion](https://addons.mozilla.org/en-US/firefox/addon/crimson-haven-companion/)
 
 *Note: The Chrome version also counts for all chromium-based browsers such as Brave, Edge, ...*

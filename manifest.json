@@ -31,7 +31,7 @@
   "optional_host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "src/background.js",
-    "scripts": ["src/protocol.js", "src/background.js"]
+    "scripts": ["src/protocol.js", "src/nudge.js", "src/background.js"]
   },
   "action": {
     "default_title": "Crimson Haven Companion",

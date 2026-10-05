@@ -62,7 +62,9 @@ a last-resort capability for hosters static scraping can't crack):
    wrapper page instead of navigating the tab straight to it — some players (Vidking) are
    built to run framed and self-destruct (close/redirect) the instant they're the top-level
    window; framing gives them the context they expect, and the tab-scoped `webRequest` still
-   captures the framed player's `.m3u8` from the subframe. Reserve these for hosters with no
+   captures the framed player's `.m3u8` from the subframe. **v1.1.6:** the play nudge and
+   media pattern moved into `src/nudge.js`, shared with the desktop app; no behaviour
+   change. Reserve these for hosters with no
    static path (it spins a real tab).
 
 It still holds **no secrets**, signs nothing, and knows nothing source-specific — the
@@ -238,6 +240,9 @@ never a requirement.
 - `src/protocol.js` — shared message constants (SW + content script).
 - `src/background.js` — the privileged core (the only place that fetches /
   installs DNR rules). Gated on `enabled`.
+- `src/nudge.js`: the resolve-in-page play nudge and media URL pattern. The
+  Crimson Haven desktop app vendors this repo and runs the same file in its own
+  capture windows, so keep it free of `chrome.*` calls.
 - `src/content.js` — isolated-world bridge; injects the in-page API and relays.
 - `src/inpage.js` — MAIN-world `window.CrimsonExtension`.
 - `src/resolve.html` + `src/resolve.js` — the `resolveInPage({frame:true})` wrapper page
@@ -256,7 +261,7 @@ never a requirement.
   `Access-Control-Expose-Headers:*` to responses so `hls.js` can read them.
 - **No build/bundler** by design (keeps it auditable and trivial to side-load).
 - **Firefox runs the same code.** Firefox has no background service worker, so
-  it loads `src/protocol.js` + `src/background.js` as an event page instead;
+  it loads `src/protocol.js` + `src/nudge.js` + `src/background.js` as an event page instead;
   `background.js` only calls `importScripts` when it exists. Everything else the
   companion relies on (`chrome.*` with promises, DNR session rules with `tabIds`,
   `world: "MAIN"` content scripts, `scripting.executeScript` into MAIN, and

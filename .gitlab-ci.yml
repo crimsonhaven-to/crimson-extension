@@ -2,7 +2,9 @@
 #
 # Triggers on a version tag (v1.2.3). GitLab
 # has no equivalent pipeline trigger, so the tag itself is the trigger — push
-# `v1.2.3` and the store upload runs.
+# `v1.2.3` and both store uploads run: Chrome Web Store and Firefox Add-ons.
+# They are separate jobs, so one store failing never blocks the other, and a
+# failed job can be retried on its own.
 #
 # mnao305/chrome-extension-upload has no GitLab equivalent, so the three Chrome Web
 # Store API calls it makes (refresh the OAuth token, upload the zip, publish) are
@@ -10,11 +12,45 @@
 #
 # Required CI/CD variables (Settings > CI/CD > Variables), all masked:
 #   CHROME_EXTENSION_ID  CHROME_CLIENT_ID  CHROME_CLIENT_SECRET  CHROME_REFRESH_TOKEN
+#   AMO_JWT_ISSUER  AMO_JWT_SECRET   (addons.mozilla.org > Developer Hub > Manage API Keys)
 
 stages:
   - publish
 
-publish:
+# Stamps the tag's version into manifest.json and src/inpage.js and zips the
+# extension. Shared by both store jobs so they publish the identical package.
+.package: &package |
+  set -euo pipefail
+  # Derive version from tag: strip a leading "v" -> 1.0.7
+  TAG="$CI_COMMIT_TAG"
+  VERSION="${TAG#v}"
+  if ! echo "$VERSION" | grep -Eq '^[0-9]+(\.[0-9]+){1,3}$'; then
+    echo "Tag '$TAG' is not a valid extension version (expected e.g. v1.0.7)" >&2
+    exit 1
+  fi
+  echo "version=$VERSION"
+
+  # manifest.json — the store's source of truth.
+  tmp="$(mktemp)"
+  jq --arg v "$VERSION" '.version = $v' manifest.json > "$tmp" && mv "$tmp" manifest.json
+  echo "manifest.json version set to $VERSION"
+
+  # src/inpage.js — the MAIN-world API can't read the manifest at runtime,
+  # so its VERSION constant is rewritten here from the same tag. Keeps
+  # window.CrimsonExtension.version in lockstep with the published build.
+  sed -i -E "s/const VERSION = \"[^\"]*\";/const VERSION = \"${VERSION}\";/" src/inpage.js
+  # Fail loudly if the substitution didn't land (constant renamed/moved),
+  # rather than silently shipping a stale version.
+  grep -q "const VERSION = \"${VERSION}\";" src/inpage.js \
+    || { echo "Failed to set VERSION in src/inpage.js" >&2; exit 1; }
+  echo "src/inpage.js VERSION set to $VERSION"
+
+  # Package only what the extension needs — no repo cruft.
+  zip -r crimson-extension.zip manifest.json src icons -x '*.DS_Store'
+  echo "Contents:" && unzip -l crimson-extension.zip || true
+
+
+publish-chrome:
   stage: publish
   tags: [docker]
   image: alpine:3.20
@@ -25,35 +61,7 @@ publish:
   before_script:
     - apk add --no-cache bash curl jq zip
   script:
-    - |
-      set -euo pipefail
-      # Derive version from tag: strip a leading "v" -> 1.0.7
-      TAG="$CI_COMMIT_TAG"
-      VERSION="${TAG#v}"
-      if ! echo "$VERSION" | grep -Eq '^[0-9]+(\.[0-9]+){1,3}$'; then
-        echo "Tag '$TAG' is not a valid extension version (expected e.g. v1.0.7)" >&2
-        exit 1
-      fi
-      echo "version=$VERSION"
-
-      # manifest.json — the store's source of truth.
-      tmp="$(mktemp)"
-      jq --arg v "$VERSION" '.version = $v' manifest.json > "$tmp" && mv "$tmp" manifest.json
-      echo "manifest.json version set to $VERSION"
-
-      # src/inpage.js — the MAIN-world API can't read the manifest at runtime,
-      # so its VERSION constant is rewritten here from the same tag. Keeps
-      # window.CrimsonExtension.version in lockstep with the published build.
-      sed -i -E "s/const VERSION = \"[^\"]*\";/const VERSION = \"${VERSION}\";/" src/inpage.js
-      # Fail loudly if the substitution didn't land (constant renamed/moved),
-      # rather than silently shipping a stale version.
-      grep -q "const VERSION = \"${VERSION}\";" src/inpage.js \
-        || { echo "Failed to set VERSION in src/inpage.js" >&2; exit 1; }
-      echo "src/inpage.js VERSION set to $VERSION"
-
-      # Package only what the extension needs — no repo cruft.
-      zip -r crimson-extension.zip manifest.json src icons -x '*.DS_Store'
-      echo "Contents:" && unzip -l crimson-extension.zip || true
+    - *package
     - |
       set -euo pipefail
       for v in CHROME_EXTENSION_ID CHROME_CLIENT_ID CHROME_CLIENT_SECRET CHROME_REFRESH_TOKEN; do
@@ -96,6 +104,45 @@ publish:
         -H "x-goog-api-version: 2" \
         -H "Content-Length: 0" \
         "https://www.googleapis.com/chromewebstore/v1.1/items/${CHROME_EXTENSION_ID}/publish" | jq .
+  artifacts:
+    paths:
+      - crimson-extension.zip
+    expire_in: 30 days
+
+publish-firefox:
+  stage: publish
+  tags: [docker]
+  image: node:22-alpine
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v/
+  resource_group: firefox-addons
+  before_script:
+    - apk add --no-cache bash jq zip
+  script:
+    - *package
+    - |
+      set -euo pipefail
+      for v in AMO_JWT_ISSUER AMO_JWT_SECRET; do
+        eval "val=\${$v:-}"
+        if [ -z "$val" ]; then
+          echo "$v is not set: cannot reach addons.mozilla.org." >&2
+          exit 1
+        fi
+      done
+
+      # Sign exactly what the Chrome job uploads, not the repo checkout.
+      mkdir -p package
+      unzip -q crimson-extension.zip -d package
+
+      # Listed versions go through AMO review, so submit without waiting for it;
+      # the signed build appears on the listing once Mozilla approves it.
+      npx --yes web-ext@8 sign \
+        --source-dir package \
+        --artifacts-dir web-ext-artifacts \
+        --channel listed \
+        --api-key "$AMO_JWT_ISSUER" \
+        --api-secret "$AMO_JWT_SECRET" \
+        --approval-timeout 0
   artifacts:
     paths:
       - crimson-extension.zip

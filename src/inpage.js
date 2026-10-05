@@ -51,7 +51,7 @@
   // rewrites it from the release tag at build time (see .gitlab-ci.yml),
   // so this committed value is just the local-dev default — CI keeps the published
   // build in lockstep with the manifest. (protocol.js / the popup read the manifest.)
-  const VERSION = "1.1.1";
+  const VERSION = "1.1.6";
   const PROTOCOL = 2;
 
   let seq = 0;
